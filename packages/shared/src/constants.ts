@@ -3,6 +3,14 @@ export const STEPS = 16 as const;
 export const TRACKS = 8 as const;
 export const NOTES_PER_TRACK = 32 as const;
 
+/**
+ * Tip split (W21a). Must match Blockbeat.sol HOST_TIP_BPS / BPS_DENOMINATOR: every tip pays
+ * 20 % to the session host and 80 % to the players' pool (`Session.tipPool`), which human
+ * players claim pro rata by hits after finalize. The resident DJ agent takes no tips.
+ */
+export const HOST_TIP_BPS = 2000n;
+export const BPS_DENOMINATOR = 10_000n;
+
 /** Monad block cadence and finality, in milliseconds. */
 export const BLOCK_MS = 300 as const;
 export const FINALITY_MS = 600 as const;
@@ -18,7 +26,16 @@ export const BAR_MS = BLOCK_MS * STEPS; // 4800
  */
 export const HIT_GAS_LIMIT_FIRST = 200_000n;
 export const HIT_GAS_LIMIT = 100_000n;
-export const TIP_GAS_LIMIT = 90_000n;
+/**
+ * tip (W21a split): one packed session-slot write (hostTips) plus the players' pool word and
+ * two events. Anvil 55,540 for a session's first tip, 38,440 after; Monad reprices cold
+ * access (+20-30 % on hits in W11), so 120k keeps headroom. 90k was sized for the pre-split tip.
+ */
+export const TIP_GAS_LIMIT = 120_000n;
+/** claim (player, after finalize): anvil 61,890 incl. the value transfer; headroom for Monad. */
+export const CLAIM_GAS_LIMIT = 150_000n;
+/** claimHost (host share of tips, any time): anvil 57,153 first, 40,053 after; headroom for Monad. */
+export const HOST_CLAIM_GAS_LIMIT = 150_000n;
 /** startSession: one struct write, a counter and an event (~110k measured); headroom for anvil. */
 export const START_SESSION_GAS_LIMIT = 250_000n;
 /** finalize: copies 16 pattern words, mints, two events; 533k measured worst case (review L10: 3M cost 0.3 MON per call). */
