@@ -62,10 +62,10 @@ the stage link on the big screen and the join link on a phone.
 
 ### Monad testnet
 
-Set `NEXT_PUBLIC_CHAIN_ID=10143` (or leave it unset), `NEXT_PUBLIC_BLOCKBEAT_ADDRESS` if
-`packages/shared/src/addresses.ts` is still zero for 10143, fund the drip and host keys
-from `https://faucet.monad.xyz`, and run `pnpm --filter web dev`. Explorer links on the
-stage, `/host` and `/track` point at Monadscan only on this chain.
+Set `NEXT_PUBLIC_CHAIN_ID=10143` (or leave it unset) and provide
+`NEXT_PUBLIC_BLOCKBEAT_ADDRESS`, fund the drip and host keys from
+`https://faucet.monad.xyz`, and run `pnpm --filter web dev`. Explorer links on the stage,
+`/host` and `/track` point at Monadscan only on this chain.
 
 ## Phones on the venue network (public URL)
 

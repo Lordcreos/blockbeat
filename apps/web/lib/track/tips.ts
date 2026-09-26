@@ -4,7 +4,7 @@
  * read four then one, HITS_OF_CHUNK_SPACING_MS apart, like the hitsOf reads (the public RPC
  * allows 25 eth_call per second), and memoised for 15 s per (chain, address, session): claims
  * move the host figure, so this cache is shorter than the track's. A contract without these
- * views (the pre-split deploy) answers null: the page then shows the pool only.
+ * views answers null: the page then shows the pool only.
  */
 import type { Address } from 'viem';
 import { ZERO_ADDRESS, blockbeatAbi } from '@blockbeat/shared';

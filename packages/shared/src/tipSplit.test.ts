@@ -56,16 +56,16 @@ describe('playerShare mirrors Blockbeat.claimableOf (before subtracting claims)'
 });
 
 describe('resident DJ address', () => {
-  it('is the testnet agent wallet on 10143 and zero on unknown chains', () => {
-    expect(RESIDENT_DJ_ADDRESS[MONAD_TESTNET_ID]).toBe('0x2222222222222222222222222222222222222222');
-    expect(residentDjAddress(MONAD_TESTNET_ID)).toBe('0x2222222222222222222222222222222222222222');
+  it('does not embed a testnet wallet and stays zero on unknown chains', () => {
+    expect(RESIDENT_DJ_ADDRESS[MONAD_TESTNET_ID]).toBe(ZERO_ADDRESS);
+    expect(residentDjAddress(MONAD_TESTNET_ID)).toBe(ZERO_ADDRESS);
     expect(residentDjAddress(424242)).toBe(ZERO_ADDRESS);
   });
 
-  it('matches the default baked into contracts/script/Deploy.s.sol (no drift)', () => {
+  it('requires AGENT_ADDRESS when deploying instead of baking in a wallet', () => {
     const script = readFileSync(resolve(__dirname, '../../../contracts/script/Deploy.s.sol'), 'utf8');
-    const match = script.match(/DEFAULT_AGENT = (0x[0-9a-fA-F]{40});/);
-    expect(match?.[1]).toBe(RESIDENT_DJ_ADDRESS[MONAD_TESTNET_ID]);
+    expect(script).toContain('vm.envAddress("AGENT_ADDRESS")');
+    expect(script).not.toContain('DEFAULT_AGENT');
   });
 });
 
@@ -139,8 +139,7 @@ describe('tip and claim gas limits (fixed, never estimated in the hot path)', ()
 });
 
 describe('W21a deployment', () => {
-  it('points 10143 at the tip-split contract, not the pre-split one', () => {
-    expect(blockbeatAddress(MONAD_TESTNET_ID)).toBe('0x1111111111111111111111111111111111111111');
-    expect(blockbeatAddress(MONAD_TESTNET_ID)).not.toBe('0x1111111111111111111111111111111111111111');
+  it('does not embed a testnet contract address', () => {
+    expect(blockbeatAddress(MONAD_TESTNET_ID)).toBe(ZERO_ADDRESS);
   });
 });

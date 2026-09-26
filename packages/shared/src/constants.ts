@@ -29,7 +29,7 @@ export const HIT_GAS_LIMIT = 100_000n;
 /**
  * tip (W21a split): one packed session-slot write (hostTips) plus the players' pool word and
  * two events. Anvil 55,540 for a session's first tip, 38,440 after; Monad reprices cold
- * access (+20-30 % on hits in W11), so 120k keeps headroom. 90k was sized for the pre-split tip.
+ * access (+20-30 % on hits in W11), so 120k keeps headroom.
  */
 export const TIP_GAS_LIMIT = 120_000n;
 /** claim (player, after finalize): anvil 61,890 incl. the value transfer; headroom for Monad. */

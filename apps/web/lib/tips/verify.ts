@@ -27,7 +27,7 @@ export interface VerifiedTip {
   from: Address;
   amountWei: bigint;
   blockNumber: bigint;
-  /** W21a TipSplit amounts; null when the receipt has no TipSplit (the pre-split contract). */
+  /** W21a TipSplit amounts; null when the receipt has no TipSplit event. */
   hostWei: bigint | null;
   poolWei: bigint | null;
 }

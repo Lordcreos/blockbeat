@@ -17,9 +17,6 @@ Built for [Monad Blitz Berlin](https://blitz.devnads.com), 26 September 2026.
 | | |
 | --- | --- |
 | Demo video | _link coming_ |
-| Contract on Monad testnet (chain 10143) | [`0x1111111111111111111111111111111111111111`](https://testnet.monadscan.com/address/0x1111111111111111111111111111111111111111) |
-| A minted track | [Blockbeat Track #1](https://testnet.monadscan.com/nft/0x1111111111111111111111111111111111111111/1) · [finalize tx](https://testnet.monadscan.com/tx/0xc5ff4cfeb4b5316f8ce4d410c484bdc125c01c8532a24fbbb831d2e73d2e91e0) |
-| First deployment (no tip split) | [`0x1111111111111111111111111111111111111111`](https://testnet.monadscan.com/address/0x1111111111111111111111111111111111111111) · [Track #1 there](https://testnet.monadscan.com/nft/0x1111111111111111111111111111111111111111/1) |
 | Design docs | [Architecture](docs/ARCHITECTURE.md) · [System design](docs/SDD.md) · [ADR 0001: note decay](docs/adr/0001-note-decay.md) · [ADR 0002: the DJ plays phrases](docs/adr/0002-dj-phrases.md) |
 
 ## Why this exists

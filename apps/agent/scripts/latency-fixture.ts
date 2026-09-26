@@ -43,4 +43,3 @@ export function percentile(sorted: number[], p: number): number {
   const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
   return sorted[idx] ?? Number.NaN;
 }
-
