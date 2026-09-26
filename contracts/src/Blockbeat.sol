@@ -4,11 +4,14 @@ pragma solidity 0.8.28;
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title Blockbeat — a 16-step sequencer clocked by Monad blocks.
 /// @notice Every block is one step. A `hit` toggles one note bit in the step word of the
 ///         block it lands in. Sessions are finalized into an ERC-721 whose metadata and
-///         16×8 grid image live fully onchain. Tips are split pro rata by hits.
+///         16×8 grid image live fully onchain. Every tip pays 20 % to the session host and
+///         80 % to the players' pool, split pro rata by hits among HUMAN players (the
+///         resident DJ agent co-owns the track but takes no tips).
 /// @dev No owner, no fees, no pausing, no upgradeability. See docs/SDD.md §4.2.
 contract Blockbeat is ERC721 {
     using Strings for uint256;
@@ -19,6 +22,10 @@ contract Blockbeat is ERC721 {
     uint256 public constant TRACKS = 8;
     uint256 public constant NOTES_PER_TRACK = 32;
 
+    /// @notice Share of every tip paid to the session host, in basis points (20 %).
+    uint256 public constant HOST_TIP_BPS = 2000;
+    uint256 public constant BPS_DENOMINATOR = 10_000;
+
     // ------------------------------------------------------------------ types
 
     struct Session {
@@ -28,7 +35,23 @@ contract Blockbeat is ERC721 {
         uint64 hitCount; // total hits in the session (attribution denominator)
         uint256 tokenId; // 0 until finalized
         uint256 parentSessionId; // 0 for an original, else the remixed session
-        uint256 tipPool; // wei tipped to this session, claimable pro rata by hits
+        uint256 tipPool; // players' pool: 80 % of each tip, claimable pro rata by human hits
+    }
+
+    /// @dev Storage layout of a session. `Session` above is the public (ABI) view, kept
+    ///      unchanged for existing clients. `humanHitCount` and `hostTips` pack into the
+    ///      `hitCount` slot, which `hit` and `tip` already touch, so neither pays for a new
+    ///      storage slot (Monad charges the fixed gas limit, so every slot matters).
+    struct SessionData {
+        uint64 startBlock;
+        address host;
+        bool finalized;
+        uint64 hitCount; // every hit, the agent's included (pattern and NFT attribution)
+        uint64 humanHitCount; // hits by everyone except `agent` (tip-split denominator)
+        uint128 hostTips; // host share earned, claimed or not (2^128 wei is far above supply)
+        uint256 tokenId;
+        uint256 parentSessionId;
+        uint256 tipPool;
     }
 
     // ------------------------------------------------------------------ events
@@ -48,6 +71,9 @@ contract Blockbeat is ERC721 {
     event Tipped(uint256 indexed sessionId, address indexed from, uint256 amount);
     event Finalized(uint256 indexed sessionId, uint256 indexed tokenId, uint256 contributors);
     event Claimed(uint256 indexed sessionId, address indexed player, uint256 amount);
+    /// @notice Emitted with every `Tipped`: how the tip was divided between host and pool.
+    event TipSplit(uint256 indexed sessionId, uint256 hostAmount, uint256 poolAmount);
+    event HostClaimed(uint256 indexed sessionId, address indexed host, uint256 amount);
 
     // ------------------------------------------------------------------ errors
 
@@ -62,6 +88,7 @@ contract Blockbeat is ERC721 {
     error NoHits();
     error NothingToClaim();
     error TransferFailed();
+    error ZeroAgent();
 
     // ------------------------------------------------------------------ storage
 
@@ -69,16 +96,24 @@ contract Blockbeat is ERC721 {
     uint256 private _sessionCount;
     uint256 private _tokenCount;
 
-    mapping(uint256 sessionId => Session) private _sessions;
+    /// @notice The resident DJ agent. Its hits shape the pattern and make it a contributor,
+    ///         but never count for (or claim from) the players' pool.
+    address public immutable agent;
+
+    mapping(uint256 sessionId => SessionData) private _sessions;
     mapping(uint256 sessionId => uint256[16]) private _steps;
     mapping(uint256 sessionId => mapping(address player => uint64)) private _hits;
     mapping(uint256 sessionId => mapping(address player => uint256)) private _claimed;
     mapping(uint256 sessionId => address[]) private _contributors;
+    mapping(uint256 sessionId => uint256) private _hostClaimed;
 
     mapping(uint256 tokenId => uint256[16]) private _tokenPatterns;
     mapping(uint256 tokenId => uint256) private _tokenSessions;
 
-    constructor() ERC721("Blockbeat Track", "BEAT") {}
+    constructor(address agent_) ERC721("Blockbeat Track", "BEAT") {
+        if (agent_ == address(0)) revert ZeroAgent();
+        agent = agent_;
+    }
 
     // ------------------------------------------------------------------ writes
 
@@ -89,7 +124,7 @@ contract Blockbeat is ERC721 {
 
     /// @notice Fork a finalized session: the 16 step words are copied and the parent recorded.
     function remix(uint256 parentSessionId) external returns (uint256 sessionId) {
-        Session storage parent = _sessions[parentSessionId];
+        SessionData storage parent = _sessions[parentSessionId];
         if (parent.host == address(0)) revert SessionNotFound();
         if (!parent.finalized) revert SessionNotFinalized();
 
@@ -102,7 +137,7 @@ contract Blockbeat is ERC721 {
     ///      No external calls. One word SSTORE per hit, plus the attribution counters and a
     ///      contributors push on a player's first hit.
     function hit(uint256 sessionId, uint8 track, uint8 note) external {
-        Session storage s = _sessions[sessionId];
+        SessionData storage s = _sessions[sessionId];
         if (s.host == address(0)) revert SessionNotFound();
         if (s.finalized) revert SessionFinalized();
         if (track >= TRACKS) revert TrackOutOfRange();
@@ -117,6 +152,7 @@ contract Blockbeat is ERC721 {
         _steps[sessionId][step] = word;
 
         s.hitCount += 1;
+        if (msg.sender != agent) s.humanHitCount += 1;
         uint64 playerHits = _hits[sessionId][msg.sender];
         _hits[sessionId][msg.sender] = playerHits + 1;
         if (playerHits == 0) _contributors[sessionId].push(msg.sender);
@@ -127,23 +163,32 @@ contract Blockbeat is ERC721 {
         emit Hit(sessionId, msg.sender, uint64(block.number), step, track, note, word & mask != 0);
     }
 
-    /// @notice Tip a session. Allowed before and after finalize. Split pro rata by hits.
-    /// @dev Rejected while the session has no hits: `hitCount` never decreases, so every
-    ///      accepted tip always has at least one claimant and no wei can be stranded.
+    /// @notice Tip a session. Allowed before and after finalize. `HOST_TIP_BPS` (20 %) goes
+    ///         to the host, the rest to the players' pool, split pro rata by human hits.
+    /// @dev Rejected while the session has no hits (the UI waits for the first note). If only
+    ///      the agent has played, the whole tip goes to the host: the pool always has a
+    ///      human claimant (`humanHitCount` never decreases), so no wei can be stranded.
+    ///      Pure accounting, no external call: the host is paid by pull (`claimHost`), so a
+    ///      host that rejects ether cannot block tips and tippers' fixed gas limits hold.
     function tip(uint256 sessionId) external payable {
-        Session storage s = _sessions[sessionId];
+        SessionData storage s = _sessions[sessionId];
         if (s.host == address(0)) revert SessionNotFound();
         if (msg.value == 0) revert ZeroTip();
         if (s.hitCount == 0) revert NoHits();
 
-        s.tipPool += msg.value;
+        uint256 hostAmount =
+            s.humanHitCount == 0 ? msg.value : (msg.value * HOST_TIP_BPS) / BPS_DENOMINATOR;
+        uint256 poolAmount = msg.value - hostAmount;
+        s.hostTips += SafeCast.toUint128(hostAmount);
+        s.tipPool += poolAmount;
         emit Tipped(sessionId, msg.sender, msg.value);
+        emit TipSplit(sessionId, hostAmount, poolAmount);
     }
 
     /// @notice Finalize a session (host only, once): freezes the pattern and mints the track
     ///         NFT to the host. The token stores its own copy of the 16 pattern words.
     function finalize(uint256 sessionId) external returns (uint256 tokenId) {
-        Session storage s = _sessions[sessionId];
+        SessionData storage s = _sessions[sessionId];
         if (s.host == address(0)) revert SessionNotFound();
         if (msg.sender != s.host) revert NotHost();
         if (s.finalized) revert SessionFinalized();
@@ -161,17 +206,20 @@ contract Blockbeat is ERC721 {
         _safeMint(msg.sender, tokenId);
     }
 
-    /// @notice Pull the caller's share of the tip pool: `tipPool * hits / hitCount` minus what
-    ///         was already claimed. Only after finalize, so the denominator is frozen and the
-    ///         sum of all shares can never exceed `tipPool`.
+    /// @notice Pull the caller's share of the players' pool: `tipPool * hits / humanHitCount`
+    ///         minus what was already claimed. Only after finalize, so the denominator is
+    ///         frozen and the sum of all shares can never exceed `tipPool`. The agent has no
+    ///         share (`NothingToClaim`).
     function claim(uint256 sessionId) external {
-        Session storage s = _sessions[sessionId];
+        SessionData storage s = _sessions[sessionId];
         if (s.host == address(0)) revert SessionNotFound();
         if (!s.finalized) revert SessionNotFinalized();
         uint64 playerHits = _hits[sessionId][msg.sender];
         if (playerHits == 0) revert NoHits();
+        if (msg.sender == agent) revert NothingToClaim();
 
-        uint256 share = (s.tipPool * playerHits) / s.hitCount;
+        // A human with hits implies humanHitCount >= playerHits > 0.
+        uint256 share = (s.tipPool * playerHits) / s.humanHitCount;
         uint256 already = _claimed[sessionId][msg.sender];
         if (share <= already) revert NothingToClaim();
         uint256 amount = share - already;
@@ -179,6 +227,26 @@ contract Blockbeat is ERC721 {
         // Effects before interaction.
         _claimed[sessionId][msg.sender] = share;
         emit Claimed(sessionId, msg.sender, amount);
+
+        (bool ok,) = msg.sender.call{value: amount}("");
+        if (!ok) revert TransferFailed();
+    }
+
+    /// @notice Pull the host's share of the tips (20 % of each, or 100 % of a tip that came
+    ///         while only the agent had played). Host only; allowed any time, since the host
+    ///         share is fixed when each tip lands.
+    function claimHost(uint256 sessionId) external {
+        SessionData storage s = _sessions[sessionId];
+        if (s.host == address(0)) revert SessionNotFound();
+        if (msg.sender != s.host) revert NotHost();
+        uint256 earned = s.hostTips;
+        uint256 already = _hostClaimed[sessionId];
+        if (earned <= already) revert NothingToClaim();
+        uint256 amount = earned - already;
+
+        // Effects before interaction.
+        _hostClaimed[sessionId] = earned;
+        emit HostClaimed(sessionId, msg.sender, amount);
 
         (bool ok,) = msg.sender.call{value: amount}("");
         if (!ok) revert TransferFailed();
@@ -193,7 +261,7 @@ contract Blockbeat is ERC721 {
 
     /// @notice The step a given block number maps to in a session.
     function stepOf(uint256 sessionId, uint64 blockNumber) external view returns (uint8) {
-        Session storage s = _sessions[sessionId];
+        SessionData storage s = _sessions[sessionId];
         if (s.host == address(0)) revert SessionNotFound();
         if (blockNumber < s.startBlock) revert BlockBeforeStart();
         // Result is < 16, so the cast cannot truncate.
@@ -201,10 +269,41 @@ contract Blockbeat is ERC721 {
         return uint8((uint256(blockNumber) - s.startBlock) % STEPS);
     }
 
+    /// @notice The session. `tipPool` is the players' pool only (80 % of tips); the total
+    ///         tipped is `totalTipsOf`, the host's part `hostTipsOf`.
     function getSession(uint256 sessionId) external view returns (Session memory) {
-        Session storage s = _sessions[sessionId];
+        SessionData storage s = _sessions[sessionId];
         if (s.host == address(0)) revert SessionNotFound();
-        return s;
+        return Session({
+            startBlock: s.startBlock,
+            host: s.host,
+            finalized: s.finalized,
+            hitCount: s.hitCount,
+            tokenId: s.tokenId,
+            parentSessionId: s.parentSessionId,
+            tipPool: s.tipPool
+        });
+    }
+
+    /// @notice Hits by everyone except the agent: the players' pool denominator.
+    function humanHitCountOf(uint256 sessionId) external view returns (uint64) {
+        return _sessions[sessionId].humanHitCount;
+    }
+
+    /// @notice Wei the host has earned from tips in this session (claimed or not).
+    function hostTipsOf(uint256 sessionId) external view returns (uint256) {
+        return _sessions[sessionId].hostTips;
+    }
+
+    /// @notice Wei the host could claim right now with `claimHost`.
+    function hostClaimableOf(uint256 sessionId) external view returns (uint256) {
+        return _sessions[sessionId].hostTips - _hostClaimed[sessionId];
+    }
+
+    /// @notice Every wei tipped to the session: host share plus players' pool.
+    function totalTipsOf(uint256 sessionId) external view returns (uint256) {
+        SessionData storage s = _sessions[sessionId];
+        return s.hostTips + s.tipPool;
     }
 
     function hitsOf(uint256 sessionId, address player) external view returns (uint64) {
@@ -242,13 +341,14 @@ contract Blockbeat is ERC721 {
         }
     }
 
-    /// @notice Wei the player could claim right now (0 while the session is live).
+    /// @notice Wei the player could claim right now (0 while the session is live, and
+    ///         always 0 for the agent).
     function claimableOf(uint256 sessionId, address player) external view returns (uint256) {
-        Session storage s = _sessions[sessionId];
+        SessionData storage s = _sessions[sessionId];
         if (!s.finalized) return 0;
         uint64 playerHits = _hits[sessionId][player];
-        if (playerHits == 0) return 0;
-        uint256 share = (s.tipPool * playerHits) / s.hitCount;
+        if (playerHits == 0 || player == agent) return 0;
+        uint256 share = (s.tipPool * playerHits) / s.humanHitCount;
         uint256 already = _claimed[sessionId][player];
         return share > already ? share - already : 0;
     }
@@ -274,7 +374,7 @@ contract Blockbeat is ERC721 {
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         _requireOwned(tokenId);
         uint256 sessionId = _tokenSessions[tokenId];
-        Session storage s = _sessions[sessionId];
+        SessionData storage s = _sessions[sessionId];
 
         string memory json = string.concat(
             '{"name":"Blockbeat Track #',
@@ -302,7 +402,7 @@ contract Blockbeat is ERC721 {
         // See `hit`: block numbers fit in uint64 for any realistic chain lifetime.
         // forge-lint: disable-next-line(unsafe-typecast)
         uint64 startBlock = uint64(block.number);
-        Session storage s = _sessions[sessionId];
+        SessionData storage s = _sessions[sessionId];
         s.startBlock = startBlock;
         s.host = msg.sender;
         s.parentSessionId = parentSessionId;

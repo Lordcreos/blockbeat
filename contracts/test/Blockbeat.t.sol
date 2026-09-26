@@ -62,6 +62,7 @@ contract BlockbeatTest is Test {
     address internal bob = makeAddr("bob");
     address internal carol = makeAddr("carol");
     address internal tipper = makeAddr("tipper");
+    address internal dj = makeAddr("dj");
 
     uint256 internal constant START_BLOCK = 1_000;
 
@@ -82,7 +83,7 @@ contract BlockbeatTest is Test {
     event Claimed(uint256 indexed sessionId, address indexed player, uint256 amount);
 
     function setUp() public {
-        bb = new Blockbeat();
+        bb = new Blockbeat(dj);
         vm.roll(START_BLOCK);
         vm.deal(tipper, 1_000 ether);
     }
@@ -284,7 +285,8 @@ contract BlockbeatTest is Test {
         bb.tip{value: 1 ether}(id);
         vm.prank(tipper);
         bb.tip{value: 0.5 ether}(id);
-        assertEq(bb.getSession(id).tipPool, 1.5 ether);
+        assertEq(bb.getSession(id).tipPool, 1.2 ether, "80 % of each tip goes to the players' pool");
+        assertEq(bb.hostTipsOf(id), 0.3 ether, "20 % to the host");
         assertEq(address(bb).balance, 1.5 ether);
     }
 
@@ -294,7 +296,7 @@ contract BlockbeatTest is Test {
         _finalize(id);
         vm.prank(tipper);
         bb.tip{value: 1 ether}(id);
-        assertEq(bb.getSession(id).tipPool, 1 ether);
+        assertEq(bb.getSession(id).tipPool, 0.8 ether);
     }
 
     function test_tip_zeroValueReverts() public {
@@ -324,7 +326,7 @@ contract BlockbeatTest is Test {
         _hit(id, alice, 0, 1);
         _hit(id, alice, 0, 2);
         _hit(id, bob, 1, 0);
-        _tipAndFinalize(id, 4 ether);
+        _tipAndFinalize(id, 5 ether); // host 1, players' pool 4
 
         assertEq(bb.claimableOf(id, alice), 3 ether);
         assertEq(bb.claimableOf(id, bob), 1 ether);
@@ -338,7 +340,7 @@ contract BlockbeatTest is Test {
         vm.prank(bob);
         bb.claim(id);
         assertEq(bob.balance, 1 ether);
-        assertEq(address(bb).balance, 0);
+        assertEq(address(bb).balance, 1 ether, "only the host share is left");
     }
 
     function test_claim_cannotClaimTwice() public {
@@ -353,21 +355,21 @@ contract BlockbeatTest is Test {
         vm.expectRevert(Blockbeat.NothingToClaim.selector);
         vm.prank(alice);
         bb.claim(id);
-        assertEq(alice.balance, 1 ether);
+        assertEq(alice.balance, 0.8 ether);
     }
 
     function test_claim_afterMoreTipsPaysOnlyTheDelta() public {
         uint256 id = _start();
         _hit(id, alice, 0, 0);
         _hit(id, bob, 0, 1);
-        _tipAndFinalize(id, 2 ether);
+        _tipAndFinalize(id, 2.5 ether); // players' pool 2
 
         vm.prank(alice);
         bb.claim(id);
         assertEq(alice.balance, 1 ether);
 
         vm.prank(tipper);
-        bb.tip{value: 2 ether}(id);
+        bb.tip{value: 2.5 ether}(id);
         assertEq(bb.claimableOf(id, alice), 1 ether);
         assertEq(bb.claimableOf(id, bob), 2 ether);
 
@@ -415,7 +417,7 @@ contract BlockbeatTest is Test {
         _tipAndFinalize(id, 1 ether);
         vm.expectRevert(Blockbeat.TransferFailed.selector);
         rp.claim(id);
-        assertEq(bb.claimableOf(id, address(rp)), 1 ether);
+        assertEq(bb.claimableOf(id, address(rp)), 0.8 ether);
     }
 
     function test_claim_reentrancyCannotDoubleClaim() public {
@@ -430,11 +432,11 @@ contract BlockbeatTest is Test {
         rp.claim();
         // Nothing paid, state intact.
         assertEq(address(rp).balance, 0);
-        assertEq(bb.claimableOf(id, address(rp)), 1 ether);
+        assertEq(bb.claimableOf(id, address(rp)), 0.8 ether);
     }
 
     /// @dev Invariant: no matter how hits and tips are distributed, the sum of all
-    /// successful claims never exceeds tipPool (and the contract never goes negative).
+    /// successful player claims never exceeds tipPool (the 80 % players' pool).
     function testFuzz_totalClaimsNeverExceedTipPool(uint8[5] memory hitsPer, uint96 tip1, uint96 tip2) public {
         uint256 id = _start();
         address[5] memory players = [makeAddr("p0"), makeAddr("p1"), makeAddr("p2"), makeAddr("p3"), makeAddr("p4")];
@@ -471,7 +473,8 @@ contract BlockbeatTest is Test {
         }
         uint256 pool = bb.getSession(id).tipPool;
         assertLe(paid, pool);
-        assertEq(address(bb).balance, pool - paid);
+        assertEq(address(bb).balance, pool - paid + bb.hostTipsOf(id), "unclaimed pool + host share");
+        assertEq(pool + bb.hostTipsOf(id), uint256(tip1) + uint256(tip2));
     }
 
     function _tryClaim(uint256 id, address player) internal returns (uint256 got) {
