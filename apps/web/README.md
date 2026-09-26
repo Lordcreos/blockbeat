@@ -102,3 +102,27 @@ pnpm --filter web exec tsx test/smoke-hit.ts   # one real hit on testnet
 Documented in the root `.env.example`. Client-visible values are `NEXT_PUBLIC_*` and are
 inlined at build time; `DRIP_PRIVATE_KEY`, `HOST_PRIVATE_KEY` and `HOST_SECRET` are server
 only and must never be committed.
+
+### Tips
+
+The stage shows two codes: **Scan to play** (`/join/<session>`, hidden until the host presses
+*Show join code*; the choice is kept per tab) and **Scan to tip** (`/tip/<session>`). The tip
+page has its own burner (`blockbeat:tipper:pk:v1`), funded once by `POST /api/drip
+{ address, mode: "tipper" }`, and offers 0.01–0.05 MON with an optional name (24) and message
+(140). Messages are off chain: `POST /api/tip-note` keeps a note only when the tx receipt holds
+a `Tipped` log of the Blockbeat contract for that session, one per tx, in
+`apps/web/.data/tip-notes.json` (gitignored). The host pulls its 20 % with *Claim host tips*
+(`POST /api/session/claim-host`, host secret); players claim their 80 % share on the phone
+after the mint. Server-only variables (to add to the root `.env.example`):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TIP_DRIP_AMOUNT_MON` | `0.1` | What the tipper drip sends (at most 0.5): one 0.05 tip and another after it |
+| `TIP_DRIP_MAX_PER_MINUTE_PER_IP` | `20` | Tipper drips per client IP per minute, apart from the player drip |
+| `TIP_DRIP_MAX_PER_MINUTE_GLOBAL` | `60` | Tipper drips per minute in total |
+| `TIP_DRIP_MAX_TOTAL` | `150` | Tipper wallets funded per server lifetime (bounds the drain to 150 × amount) |
+| `TIP_DRIP_MAX_PER_SESSION` | `50` | Tipper wallets per session (one actor can use up one show at most) |
+| `TIP_DRIP_MAX_PER_IP_PER_SESSION` | `25` | Tipper wallets per client IP within a session |
+| `TIP_NOTE_MAX_PER_MINUTE_PER_IP` | `30` | Note posts per client IP per minute |
+| `TIP_NOTE_MAX_PER_MINUTE_GLOBAL` | `600` | Note posts per minute in total |
+| `TIP_NOTES_FILE` | `.data/tip-notes.json` | Where the notes are kept (relative to apps/web) |

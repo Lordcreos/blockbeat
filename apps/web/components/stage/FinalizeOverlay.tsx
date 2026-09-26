@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import type { Hash } from 'viem';
 import { formatInt } from '@/components/format';
+import { formatMon } from '@/lib/funding';
 
 export interface FinalizeSummary {
   sessionId: bigint;
@@ -12,6 +13,8 @@ export interface FinalizeSummary {
   /** Monadscan token page, null on anvil or in mock mode. */
   explorerTokenUrl: string | null;
   explorerTxUrl: string | null;
+  /** W21b: raised by the session at the moment of finalize (host share + players' pool); absent hides the line. */
+  raisedWei?: bigint;
 }
 
 interface FinalizeOverlayProps {
@@ -67,8 +70,13 @@ export function FinalizeOverlay({ result, onClose }: FinalizeOverlayProps) {
         <p className="num" style={{ fontSize: 'var(--text-lg)' }}>
           {formatInt(result.contributors)} {result.contributors === 1n ? 'co-author' : 'co-authors'} · session {result.sessionId.toString()}
         </p>
+        {result.raisedWei !== undefined && (
+          <p data-testid="finalize-raised" className="num" style={{ fontSize: 'var(--text-hud)', fontWeight: 700, color: 'var(--track-hat)', letterSpacing: '-0.02em', fontFamily: 'var(--font-mono)' }}>
+            Raised: {formatMon(result.raisedWei)} MON
+          </p>
+        )}
         <p style={{ fontSize: 'var(--text-md)', color: 'var(--ink-muted)', maxWidth: '44ch' }}>
-          Everyone who tapped owns it. Tips to the session split by notes.
+          Everyone who tapped owns it. Tips split 20 % to the host and 80 % to the players, by notes. The DJ takes none.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-4">
           <Link

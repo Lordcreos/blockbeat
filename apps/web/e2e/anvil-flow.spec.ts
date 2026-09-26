@@ -114,10 +114,13 @@ test.describe('anvil end to end', () => {
     await expect(stage.getByTestId('hud-players')).toContainText('2');
     await shot(stage, '06-stage-agent-hit');
 
-    // 6. Tip the room from the burner (0.005 MON, fixed gas).
-    await phone.getByRole('button', { name: /tip the room/i }).click();
-    await expect(phone.getByTestId('tip-line')).toContainText(/Tip landed · block [\d,]+/, { timeout: 20_000 });
-    await shot(phone, '07-phone-tipped');
+    // 6. W21b: tip from the tip page (its own drip-funded burner, fixed gas), as a stage-QR scanner would.
+    const tipper = await phoneCtx.newPage();
+    await tipper.goto(`/tip/${sessionId}`);
+    await expect(tipper.getByRole('button', { name: 'Send tip' })).toBeEnabled({ timeout: 20_000 });
+    await tipper.getByRole('button', { name: 'Send tip' }).click();
+    await expect(tipper.getByTestId('tip-confirmed')).toContainText(/0\.01 MON landed in block [\d,]+/, { timeout: 20_000 });
+    await shot(tipper, '07-phone-tipped');
 
     // 7. Finalize from the stage (a fresh context: the presenter types the secret here).
     // Commit the secret first (Enter): committing it on blur hides the field and reflows the buttons

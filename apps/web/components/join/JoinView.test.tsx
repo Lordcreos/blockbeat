@@ -21,18 +21,18 @@ let balance: UseBalanceResult;
 const refresh = vi.fn();
 const send = vi.fn();
 const topUpFn = vi.fn<UseTopUpResult['topUp']>();
-const tipFn = vi.fn();
-let tipReadyAt: number | null = null;
 let topUpState: Omit<UseTopUpResult, 'topUp'> = { phase: null, error: null, topUpsLeft: null };
 /** W13: what the phone's feed holds (the strip shows this player's live notes). */
 let feedHits: HitEvent[] = [];
 let headHint: { block: bigint; atMs: number } | null = null;
 
+/** W21b: the finalized phone's tip share (ClaimShare). */
+let tipShareWei: bigint | null = null;
+vi.mock('@/lib/tips/claims', () => ({ useTipShare: () => ({ claimableWei: tipShareWei, state: { kind: 'idle' }, claim: vi.fn() }) }));
 vi.mock('@/lib/hooks', () => ({
   useBurner: () => ({ address: '0x0000000000000000000000000000000000000001', restored: false }),
   useDrip: () => ({ drip: { txHash: null, track: 2, alreadyFunded: false }, loading: false, error: null, retryInSeconds: null }),
   useHitSender: () => ({ send, pending: 0 }),
-  useTip: () => ({ tip: tipFn, pending: false, readyAt: () => tipReadyAt }),
   useBalance: () => balance,
   useTopUp: () => ({ ...topUpState, topUp: topUpFn }),
   useEventFeed: () => ({
@@ -96,7 +96,6 @@ describe('JoinView after finalize', () => {
     for (const pad of pads) expect(pad.hasAttribute('disabled')).toBe(true);
     expect(screen.getByTestId('landing-line').textContent).toMatch(/track minted/i);
     expect(screen.getByRole('link', { name: /open the track/i }).getAttribute('href')).toBe('/track/3');
-    expect(screen.getByRole('button', { name: /tip the room/i }).hasAttribute('disabled')).toBe(false);
   });
 });
 
@@ -201,45 +200,42 @@ describe('JoinView top-up (W12)', () => {
   });
 });
 
-describe('JoinView tips (W12)', () => {
+describe('JoinView tip share (W21b)', () => {
+  beforeEach(() => {
+    finalized = true;
+    balance = withBalance('0.2', 20);
+    window.localStorage.setItem('blockbeat:phone:tour', 'done');
+  });
+  afterEach(() => {
+    cleanup();
+    tipShareWei = null;
+  });
+
+  it('offers the player share of the tips once the track is minted', () => {
+    tipShareWei = 16_000_000_000_000_000n;
+    render(<JoinView sessionId={7n} />);
+    expect(screen.getByTestId('claim-share').textContent).toContain('You earned 0.016 MON from tips');
+    expect(screen.getByRole('button', { name: 'Claim' })).toBeTruthy();
+  });
+});
+
+describe('JoinView without tips (W21b)', () => {
   beforeEach(() => {
     finalized = false;
     balance = withBalance('0.2', 20);
-    refresh.mockReset();
-    tipFn.mockReset();
-    tipReadyAt = null;
     window.localStorage.clear();
     window.localStorage.setItem('blockbeat:phone:tour', 'done');
   });
   afterEach(cleanup);
 
-  it('confirms a landed tip and counts this phone\'s tips', async () => {
-    tipFn.mockResolvedValue({ txHash: `0x${'ab'.repeat(32)}`, blockNumber: 65_518_680n, amountWei: 5_000_000_000_000_000n, latencyMs: 700 });
+  it('has no tip button, tip line or tally: tips live on /tip, the balance pill stays', () => {
     render(<JoinView sessionId={7n} />);
+    expect(screen.queryByRole('button', { name: /tip/i })).toBeNull();
+    expect(screen.queryByTestId('tip-line')).toBeNull();
     expect(screen.queryByTestId('tip-tally')).toBeNull();
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /tip the room/i }));
-    });
-    expect(screen.getByTestId('tip-line').textContent).toBe('Tip landed · block 65,518,680');
-    expect(screen.getByTestId('tip-tally').textContent).toBe('You tipped 1 time · 0.005 MON each');
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /tip the room/i }));
-    });
-    expect(screen.getByTestId('tip-tally').textContent).toBe('You tipped 2 times · 0.005 MON each');
-    expect(refresh).toHaveBeenCalledTimes(2);
-  });
-
-  it('shows the reserve-rule wait as a countdown while the tip is held', async () => {
-    tipReadyAt = Date.now() + 1_200;
-    tipFn.mockReturnValue(new Promise(() => undefined));
-    render(<JoinView sessionId={7n} />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /tip the room/i }));
-    });
-    expect(screen.getByTestId('tip-line').textContent).toMatch(/^Tip waits 1\.[0-2] s · Monad reserve rule$/);
+    expect(screen.getByTestId('funds-pill')).toBeTruthy();
   });
 });
-
 
 describe('JoinView live strip (W13)', () => {
   const ME = '0x0000000000000000000000000000000000000001' as const;

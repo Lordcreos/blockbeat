@@ -13,7 +13,11 @@ test.describe('stage', () => {
       await expect(page.getByTestId('hud').getByText(label, { exact: true })).toBeVisible();
     }
     await expect(page.getByTestId('qr-join').locator('canvas')).toBeVisible();
-    await expect(page.getByTestId('short-url')).toContainText(/\/join\/1$/);
+    // W21b: the join code starts hidden (blurred, no URL); the tips code is always there.
+    await expect(page.getByTestId('qr-join')).toHaveAttribute('data-visible', 'false');
+    await expect(page.getByTestId('short-url')).toHaveText('Join code hidden');
+    await expect(page.getByTestId('qr-tip').locator('canvas')).toBeVisible();
+    await expect(page.getByTestId('tip-url')).toContainText(/\/tip\/1$/);
     await expect(page.getByTestId('legend')).toContainText(/agent/i);
     await expect(page.getByTestId('scan-cta')).toContainText(/scan to play/i);
   });
@@ -96,10 +100,11 @@ test.describe('stage', () => {
 });
 
 test.describe('stage W12: tips and the resident DJ', () => {
-  test('shows the Tips stat and a DJ panel that starts off', async ({ page }) => {
+  test('shows Raised by this song (W21b, instead of the Tips stat) and a DJ panel that starts off', async ({ page }) => {
     await page.goto('/stage/1');
-    await expect(page.getByTestId('hud').getByText('Tips', { exact: true })).toBeVisible();
-    await expect(page.getByTestId('hud-tips')).toHaveText(/MON · \d+/);
+    await expect(page.getByTestId('tips-panel')).toContainText('Raised by this song');
+    await expect(page.getByTestId('raised')).toHaveText(/MON$/);
+    await expect(page.getByTestId('hud-tips')).toHaveCount(0);
     await expect(page.getByTestId('dj-state')).toHaveText('Off');
     // W15: the DJ button lives in the host bar, shown with ?host=1 or a stored secret.
     await expect(page.getByRole('button', { name: 'Start DJ' })).toHaveCount(0);
@@ -157,5 +162,29 @@ test.describe('stage W15: the host bar', () => {
     await expect(page.getByTestId('host-session-state')).toHaveText(/Minted as Track #\d+/);
     await expect(bar.getByRole('link', { name: 'Play the track' })).toHaveAttribute('href', /\/track\/\d+$/);
     await expect(bar.getByRole('link', { name: 'Open the gallery' })).toHaveAttribute('href', '/tracks');
+  });
+});
+
+test.describe('stage W21b: the join code toggle', () => {
+  test('the host shows and hides the join code; the choice stays for the tab', async ({ page }) => {
+    await page.goto('/stage/1?host=1');
+    await page.getByRole('button', { name: /start the room/i }).click();
+    await expect(page.getByTestId('host-bar')).not.toHaveAttribute('inert', '');
+    await page.getByRole('button', { name: 'Show join code' }).click();
+    await expect(page.getByTestId('qr-join')).toHaveAttribute('data-visible', 'true');
+    await expect(page.getByTestId('short-url')).toContainText(/\/join\/1$/);
+    await page.reload();
+    await expect(page.getByTestId('qr-join')).toHaveAttribute('data-visible', 'true');
+    await page.getByRole('button', { name: /start the room/i }).click();
+    await page.getByRole('button', { name: 'Hide join code' }).click();
+    await expect(page.getByTestId('qr-join')).toHaveAttribute('data-visible', 'false');
+  });
+
+  test('the rail still fits 1080 px with both codes, the tips panel and the DJ panel', async ({ page }) => {
+    await page.goto('/stage/1?host=1');
+    const vp = page.viewportSize();
+    test.skip((vp?.width ?? 0) <= 1100, 'the rail stacks under the grid on narrow screens');
+    const dj = await page.getByTestId('dj-panel').boundingBox();
+    expect((dj?.y ?? 0) + (dj?.height ?? 0)).toBeLessThanOrEqual(vp?.height ?? 0);
   });
 });

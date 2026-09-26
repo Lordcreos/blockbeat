@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# W21b: off-chain tip notes (JSON store written by /api/tip-note)
+/.data/

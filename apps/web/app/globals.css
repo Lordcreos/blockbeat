@@ -274,7 +274,36 @@ body {
   box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+/* W21b: a tip lands. The raised figure pops once and the newest tip slides in from the rail edge. */
+@keyframes raised-pop {
+  0% { transform: scale(1.18); text-shadow: 0 0 28px var(--track-hat); }
+  100% { transform: scale(1); text-shadow: 0 0 0 transparent; }
+}
+.raised-pop {
+  display: inline-block;
+  transform-origin: right center;
+  animation: raised-pop 700ms var(--ease-out);
+}
+@keyframes tip-in {
+  0% { opacity: 0; transform: translateX(24px); background: color-mix(in srgb, var(--track-hat) 28%, var(--surface-2)); }
+  60% { opacity: 1; transform: translateX(0); }
+  100% { background: var(--surface-2); }
+}
+.tip-in {
+  animation: tip-in 900ms var(--ease-out);
+}
+/* W21b: the tip page waits for the first note: five bars breathing like a meter. */
+@keyframes meter {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+.meter-bar {
+  transform-origin: bottom;
+  animation: meter 1.2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .raised-pop, .tip-in, .meter-bar { animation: none !important; }
   .cell-flash, .cell-flash::after, .cell-agent::before, .pad-flash, .playhead-edge, .grid-hint,
   .pad-warming::after, .line-pop, .strip-landed, .tip-flash, .hero-playhead, .hero-cell[data-on], .hero-cell[data-on]::after,
   .stage-ambient::before, .stage-ambient::after {
