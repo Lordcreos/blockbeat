@@ -251,8 +251,101 @@ export const blockbeatAbiExt = [
   },
 ] as const;
 
-/** Full ABI: core interface plus the additive views and errors. */
-export const blockbeatAbi = [...blockbeatCoreAbi, ...blockbeatAbiExt] as const;
+/**
+ * W21a tip split (additions only; every earlier item is unchanged): each tip pays 20 % to the
+ * session host (pulled with `claimHost`) and 80 % to the players' pool (`Session.tipPool`),
+ * claimed pro rata by HUMAN hits; the resident DJ `agent()` takes no tips. `Tipped` is still
+ * emitted and is now followed by `TipSplit`. Generated from `forge inspect Blockbeat abi`.
+ */
+export const blockbeatTipSplitAbi = [
+  { type: 'error', name: 'ZeroAgent', inputs: [] },
+  {
+    type: 'error',
+    name: 'SafeCastOverflowedUintDowncast',
+    inputs: [
+      { name: 'bits', type: 'uint8' },
+      { name: 'value', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'TipSplit',
+    inputs: [
+      { name: 'sessionId', type: 'uint256', indexed: true },
+      { name: 'hostAmount', type: 'uint256', indexed: false },
+      { name: 'poolAmount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'HostClaimed',
+    inputs: [
+      { name: 'sessionId', type: 'uint256', indexed: true },
+      { name: 'host', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'claimHost',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'sessionId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'hostTipsOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'sessionId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'hostClaimableOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'sessionId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'totalTipsOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'sessionId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'humanHitCountOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'sessionId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint64' }],
+  },
+  {
+    type: 'function',
+    name: 'agent',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'HOST_TIP_BPS',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'BPS_DENOMINATOR',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
+
+/** Full ABI: core interface, the additive views and errors, and the W21a tip split. */
+export const blockbeatAbi = [...blockbeatCoreAbi, ...blockbeatAbiExt, ...blockbeatTipSplitAbi] as const;
 
 export type BlockbeatAbi = typeof blockbeatAbi;
 export type BlockbeatAbiExt = typeof blockbeatAbiExt;
+export type BlockbeatTipSplitAbi = typeof blockbeatTipSplitAbi;
