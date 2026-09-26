@@ -10,6 +10,8 @@
  * funded before, while it holds under 0.03 MON, at most twice (409 otherwise), through the
  * same caps and pacing as the first drip.
  *
+ * W21b: `{ address, mode: "tipper" }` funds the tip page's burner once with the small tipper
+ * amount, counted apart from the player caps (lib/drip/tipper.ts): { txHash, alreadyFunded, amountWei }.
  * W19: `sessionId` (optional, the session the phone joins) feeds the per-session room cap
  * (DRIP_MAX_PLAYERS_PER_SESSION); over it the answer is 409 ROOM_FULL.
  */
@@ -17,7 +19,8 @@ import { NextResponse } from 'next/server';
 import { clientIp } from '@/lib/clientIp';
 import { parseSessionId } from '@/lib/types';
 import { DripError } from '@/lib/drip/service';
-import { getDripService } from '@/lib/drip/runtime';
+import { getDripService, getTipperDripService } from '@/lib/drip/runtime';
+import { TipperDripError } from '@/lib/drip/tipper';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,13 +48,21 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch {
     return errorResponse('INVALID_JSON', 'body must be JSON: { "address": "0x…" }', 400);
   }
-  const fields = typeof body === 'object' && body !== null ? (body as { address?: unknown; topUp?: unknown; sessionId?: unknown }) : {};
-  const { address, topUp, sessionId: rawSession } = fields;
+  const fields = typeof body === 'object' && body !== null ? (body as { address?: unknown; topUp?: unknown; mode?: unknown; sessionId?: unknown }) : {};
+  const { address, topUp, mode, sessionId: rawSession } = fields;
   if (typeof address !== 'string' || address.length > MAX_ADDRESS_LENGTH) {
     return errorResponse('INVALID_ADDRESS', 'address must be a 0x-prefixed 20-byte hex string', 400);
   }
   if (topUp !== undefined && typeof topUp !== 'boolean') {
     return errorResponse('INVALID_TOPUP', 'topUp must be true or false', 400);
+  }
+  if (mode !== undefined && mode !== 'tipper') return errorResponse('INVALID_MODE', 'mode must be "tipper" or absent', 400);
+  if (mode === 'tipper') {
+    if (topUp === true) return errorResponse('INVALID_TOPUP', 'tipper wallets get no top-ups', 400);
+    const raw = fields.sessionId;
+    const sessionId = typeof raw === 'string' && raw.length <= 78 ? parseSessionId(raw) : typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0 ? BigInt(raw) : null;
+    if (sessionId === null) return errorResponse('INVALID_SESSION', 'tipper mode needs the sessionId being tipped', 400);
+    return tipperDrip(address, sessionId, request);
   }
   let sessionId: bigint | null = null;
   if (rawSession !== undefined) {
@@ -72,6 +83,19 @@ export async function POST(request: Request): Promise<NextResponse> {
       return errorResponse(error.code, error.message, error.status, headers);
     }
     console.error('drip: unexpected error', error);
+    return errorResponse('INTERNAL_ERROR', 'unexpected error', 500);
+  }
+}
+
+/** W21b: the tip page's one-off funding. */
+async function tipperDrip(address: string, sessionId: bigint, request: Request): Promise<NextResponse> {
+  try {
+    return NextResponse.json(await getTipperDripService().drip({ address, ip: clientIp(request), sessionId }));
+  } catch (error) {
+    if (error instanceof TipperDripError) {
+      return errorResponse(error.code, error.message, error.status, error.retryAfterMs === null ? {} : { 'retry-after': String(Math.ceil(error.retryAfterMs / 1000)) });
+    }
+    console.error('drip: unexpected tipper error', error);
     return errorResponse('INTERNAL_ERROR', 'unexpected error', 500);
   }
 }

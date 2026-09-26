@@ -19,6 +19,9 @@ const CONTRACT_ERRORS = [
   'TrackOutOfRange',
   'TransferFailed',
   'ZeroTip',
+  // W21a tip split: the constructor's agent check and OpenZeppelin SafeCast in the packed host tips.
+  'ZeroAgent',
+  'SafeCastOverflowedUintDowncast',
 ] as const;
 
 const ERC721_ERRORS = [

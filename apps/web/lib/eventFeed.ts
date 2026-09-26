@@ -32,6 +32,7 @@ import {
   type HitEvent,
   type Pattern,
   type SessionState,
+  type TipSplitEvent,
 } from '@blockbeat/shared';
 import { HitDecodeError } from './chain/eventSource';
 import { sharedLatency, type LatencyTracker } from './latency';
@@ -84,10 +85,27 @@ export interface EventSource {
   readHits?(query: HitRangeQuery): Promise<HitRange>;
   /** W13: the latest block number, the top of every backfill. */
   readHead?(): Promise<bigint>;
+  /** W21b: `totalTipsOf(sessionId)` (W21a): every wei tipped, host share and players' pool. */
+  readTotalTips?(sessionId: bigint): Promise<bigint>;
+  /** W21b: `TipSplit` logs (W21a), emitted right after every `Tipped`: how much went to the pool. */
+  watchTipSplits?(args: TipSplitWatchArgs): () => void;
+  /**
+   * W21b: pushes the session when it changes out of band (the simulator's mock finalize, heard
+   * over the bus). The chain source has none: a phone sees finalize at its next session read.
+   */
+  watchSession?(args: { sessionId: bigint; onSession(session: SessionState): void }): () => void;
+}
+
+export interface TipSplitWatchArgs {
+  sessionId: bigint;
+  mode: HitWatchMode;
+  pollingIntervalMs?: number;
+  onSplits(splits: TipSplitEvent[]): void;
+  onError(error: Error): void;
 }
 
 /** W13: how much Hit history the feed reads back: the live window, or the whole session. */
-export type HistoryMode = 'window' | 'full';
+export type HistoryMode = 'window' | 'full' | 'none';
 
 export interface EventFeedOptions {
   sessionId: bigint;
@@ -107,6 +125,11 @@ export interface EventFeedOptions {
   /** W13: note lifetime in bars; 0 turns decay off and with it the backfill. Default 8. */
   lifetimeBars?: number;
   /**
+   * W21b: read `totalTipsOf` with the session and watch `TipSplit` (the stage and the tip page).
+   * Off by default: 60 phones need neither, and every watch costs the public RPC in poll mode.
+   */
+  tipTotals?: boolean;
+  /**
    * W13: wait this long before the first history read. Phones pass a random 0-1.5 s so a room
    * that scans the QR together does not hit the public RPC in the same second (TS review H1).
    */
@@ -120,6 +143,8 @@ export interface EventFeedController extends EventFeed {
 }
 
 const HPM_WINDOW_MS = 60_000;
+/** W21b: live tips kept for the stage's list (newest last). */
+export const LIVE_TIPS_LIMIT = 50;
 const SEEN_LIMIT = 4096;
 export const RESYNC_INTERVAL_MS = 10_000;
 export const WS_RETRY_INTERVAL_MS = 30_000;
@@ -139,7 +164,10 @@ export function createEventFeed(options: EventFeedOptions): EventFeedController 
   const historyPlayer = options.historyPlayer;
   const readHits = source.readHits?.bind(source);
   const readHead = source.readHead?.bind(source);
-  const historyEnabled = lifetimeBars > 0 && readHits !== undefined && readHead !== undefined;
+  const tipTotals = options.tipTotals ?? false;
+  const readTotalTips = tipTotals ? source.readTotalTips?.bind(source) : undefined;
+  // W21b: 'none' (the tip page) never backfills; it only needs the session and the live streams.
+  const historyEnabled = options.history !== 'none' && lifetimeBars > 0 && readHits !== undefined && readHead !== undefined;
   /**
    * Lowest block the live layer can need at `head` (the shared replay window: 2 lifetimes + the
    * fade, so voice-cap evictions come out the same on every device), minus the overlap.
@@ -156,6 +184,10 @@ export function createEventFeed(options: EventFeedOptions): EventFeedController 
   const hitTimes: number[] = [];
   const seen = new Set<string>();
   let tipPoolWei = 0n;
+  /** W21b: every tip's full amount (pool + host share): the "Raised" figure. */
+  let raisedWei = 0n;
+  let liveTips: readonly TipEvent[] = [];
+  const seenSplits = new Set<string>();
   /** Tips implied by the pool at the first read, and Tipped events seen since. */
   let tipsAtLoad: number | null = null;
   let tipsLive = 0;
@@ -177,6 +209,8 @@ export function createEventFeed(options: EventFeedOptions): EventFeedController 
 
   let unwatch: (() => void) | null = null;
   let unwatchTips: (() => void) | null = null;
+  let unwatchSplits: (() => void) | null = null;
+  let unwatchSession: (() => void) | null = null;
   let unsubscribeLatency: (() => void) | null = null;
   let running = false;
   let starting: Promise<void> | null = null;
@@ -211,6 +245,8 @@ export function createEventFeed(options: EventFeedOptions): EventFeedController 
       decodeErrors,
       tipPoolWei,
       tipCount: tipCount(),
+      raisedWei,
+      tips: liveTips,
       hits: sortedHits,
       historyReady: !historyEnabled || scannedTo !== null,
       historyFrom,
@@ -274,7 +310,11 @@ export function createEventFeed(options: EventFeedOptions): EventFeedController 
         const first = seenTips.values().next().value;
         if (first !== undefined) seenTips.delete(first);
       }
-      tipPoolWei += tip.amountWei;
+      // W21a: only the players' 80 % reaches the pool. The simulator hands the split with the tip;
+      // on chain it arrives as a TipSplit log (onSplits) or with the next session read.
+      if (tip.split) tipPoolWei += tip.split.poolWei;
+      raisedWei += tip.amountWei;
+      liveTips = [...liveTips, tip].slice(-LIVE_TIPS_LIMIT);
       tipsLive += 1;
       if (session) session = { ...session, tipPool: tipPoolWei };
       changed = true;
@@ -283,13 +323,39 @@ export function createEventFeed(options: EventFeedOptions): EventFeedController 
     if (changed) emitChange();
   }
 
+  /** W21b: the pool part of chain tips, from their TipSplit logs; attached to the live tip too. */
+  function onSplits(splits: TipSplitEvent[]): void {
+    let changed = false;
+    for (const split of splits) {
+      const key = `${split.txHash}:${split.logIndex}`;
+      if (seenSplits.has(key)) continue;
+      seenSplits.add(key);
+      if (seenSplits.size > SEEN_LIMIT) {
+        const first = seenSplits.values().next().value;
+        if (first !== undefined) seenSplits.delete(first);
+      }
+      tipPoolWei += split.poolAmount;
+      if (session) session = { ...session, tipPool: tipPoolWei };
+      const hash = split.txHash.toLowerCase();
+      liveTips = liveTips.map((t) => (t.txHash.toLowerCase() === hash && !t.split ? { ...t, split: { hostWei: split.hostAmount, poolWei: split.poolAmount } } : t));
+      changed = true;
+    }
+    if (changed) emitChange();
+  }
+
   async function readChain(): Promise<void> {
-    const [p, s] = await Promise.all([source.readPattern(sessionId), source.readSession(sessionId)]);
+    const [p, s, totalTips] = await Promise.all([
+      source.readPattern(sessionId),
+      source.readSession(sessionId),
+      readTotalTips ? readTotalTips(sessionId) : Promise.resolve(null),
+    ]);
     if (!running) return; // stopped while reading
     pattern = [...p];
     session = s;
     hitCount = s ? Number(s.hitCount) : 0;
     tipPoolWei = s?.tipPool ?? 0n;
+    // Without totalTipsOf (phones) the pool is the best figure at hand; the stage reads the total.
+    raisedWei = totalTips ?? tipPoolWei;
     tipsAtLoad ??= Number(tipPoolWei / APP_TIP_WEI) - tipsLive;
   }
 
@@ -394,6 +460,10 @@ export function createEventFeed(options: EventFeedOptions): EventFeedController 
       unwatchTips();
       unwatchTips = null;
     }
+    unwatchSplits?.();
+    unwatchSplits = tipTotals
+      ? (source.watchTipSplits?.({ sessionId, mode: nextMode, pollingIntervalMs, onSplits, onError: (error) => emitError(error) }) ?? null)
+      : null;
     // Tips follow the hit watch's mode; their errors are reported, the hit watch decides the mode.
     unwatchTips =
       source.watchTips?.({
@@ -469,6 +539,15 @@ export function createEventFeed(options: EventFeedOptions): EventFeedController 
         }
         if (!running) return; // stopped while reading
         unsubscribeLatency = latency.subscribe(() => emitChange());
+        unwatchSession =
+          source.watchSession?.({
+            sessionId,
+            onSession(next) {
+              if (!running) return;
+              session = { ...next, tipPool: tipPoolWei };
+              emitChange();
+            },
+          }) ?? null;
         watch('ws', { resync: false });
         const delay = options.initialSyncDelayMs ?? 0;
         if (delay > 0) {
@@ -501,6 +580,10 @@ export function createEventFeed(options: EventFeedOptions): EventFeedController 
         unwatchTips();
         unwatchTips = null;
       }
+      unwatchSplits?.();
+      unwatchSplits = null;
+      unwatchSession?.();
+      unwatchSession = null;
       if (unsubscribeLatency) {
         unsubscribeLatency();
         unsubscribeLatency = null;

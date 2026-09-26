@@ -41,6 +41,29 @@ describe('createTipSender', () => {
     expect(sender.pending()).toBe(0);
   });
 
+  it('W21b: sends the amount the tipper picked, and explains a revert with that amount', async () => {
+    const writer = vi.fn<TipWriter>(async () => TX);
+    const explainRevert = vi.fn(async () => 'NoHits');
+    const sender = createTipSender({ writer, receipts: { ...receipts(9n, 'success', 10), explainRevert } });
+    const p = sender.send(7n, parseEther('0.03'));
+    await vi.advanceTimersByTimeAsync(10);
+    expect((await p).amountWei).toBe(parseEther('0.03'));
+    expect(writer).toHaveBeenCalledWith({ sessionId: 7n, valueWei: parseEther('0.03') });
+    const reverted = createTipSender({ writer, receipts: { ...receipts(9n, 'reverted', 10), explainRevert } });
+    const q = reverted.send(7n, parseEther('0.04'));
+    const settled = q.catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await settled).toMatchObject({ code: 'NO_HITS' });
+    expect(explainRevert).toHaveBeenCalledWith({ sessionId: 7n, valueWei: parseEther('0.04') });
+  });
+
+  it('W21b: refuses a zero or negative amount before sending', async () => {
+    const writer = vi.fn<TipWriter>(async () => TX);
+    const sender = createTipSender({ writer, receipts: receipts() });
+    await expect(sender.send(7n, 0n)).rejects.toMatchObject({ code: 'INVALID_ARGS' });
+    expect(writer).not.toHaveBeenCalled();
+  });
+
   it('waits out the Monad reserve window after the burner\'s last hit or tip before sending a tip (W11)', async () => {
     // A burner holds < 10 MON: a value transfer lands only if it sent nothing in the past 3 blocks.
     expect(TIP_RESERVE_GUARD_MS).toBe(1_500);

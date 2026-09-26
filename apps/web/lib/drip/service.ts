@@ -71,8 +71,11 @@ export class DripRevertedError extends Error {
 }
 
 export interface DripSender {
-  /** Resolves with the hash once the node accepted the transfer (not once it is mined). */
-  send(to: Address): Promise<Hash>;
+  /**
+   * Resolves with the hash once the node accepted the transfer (not once it is mined). W21b:
+   * `amountWei` overrides the configured amount for this send (the tipper drip).
+   */
+  send(to: Address, amountWei?: bigint): Promise<Hash>;
   /**
    * Optional: resolves once the transfer is mined, rejects with DripRevertedError when it
    * reverted (the address may drip again) or with anything else when it was not seen in time

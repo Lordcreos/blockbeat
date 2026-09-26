@@ -5,7 +5,7 @@
  * value (viem cannot return values from a sent transaction).
  */
 import { parseEventLogs, type Account, type Address, type Chain, type Hash, type Log, type PublicClient, type Transport, type WalletClient } from 'viem';
-import { FINALIZE_GAS_LIMIT, START_SESSION_GAS_LIMIT, blockbeatAbi } from '@blockbeat/shared';
+import { FINALIZE_GAS_LIMIT, HOST_CLAIM_GAS_LIMIT, START_SESSION_GAS_LIMIT, blockbeatAbi } from '@blockbeat/shared';
 
 export type HostErrorCode = 'SEND_FAILED' | 'TX_REVERTED' | 'LOG_MISSING' | 'TIMEOUT';
 
@@ -33,12 +33,21 @@ export interface FinalizeResult {
   txHash: Hash | null;
 }
 
+/** W21b: the host pulled its share of the session's tips (W21a `claimHost`). */
+export interface HostClaimResult {
+  sessionId: bigint;
+  amountWei: bigint;
+  txHash: Hash | null;
+}
+
 export interface HostService {
   startSession(): Promise<StartSessionResult>;
   finalize(sessionId: bigint): Promise<FinalizeResult>;
+  /** W21b: host only, any time; reverts NotHost / NothingToClaim on chain (a 409 TX_REVERTED). */
+  claimHost(sessionId: bigint): Promise<HostClaimResult>;
 }
 
-export { FINALIZE_GAS_LIMIT, START_SESSION_GAS_LIMIT };
+export { FINALIZE_GAS_LIMIT, HOST_CLAIM_GAS_LIMIT, START_SESSION_GAS_LIMIT };
 export const RECEIPT_TIMEOUT_MS = 30_000;
 
 export interface ChainHostServiceOptions {
@@ -107,6 +116,17 @@ export function createChainHostService(options: ChainHostServiceOptions): HostSe
         if (!finalized) throw new HostError('LOG_MISSING', `finalize mined (${txHash}) but no Finalized log was emitted`);
         return { sessionId: finalized.args.sessionId, tokenId: finalized.args.tokenId, contributors: finalized.args.contributors, txHash };
       }),
+
+    claimHost: (sessionId) =>
+      serialised(async () => {
+        const { txHash, receipt } = await sendAndWait('claimHost', () =>
+          wallet.writeContract({ address, abi: blockbeatAbi, functionName: 'claimHost', args: [sessionId], gas: HOST_CLAIM_GAS_LIMIT }),
+        );
+        const own = receipt.logs.filter((log) => log.address.toLowerCase() === address.toLowerCase());
+        const [claimed] = parseEventLogs({ abi: blockbeatAbi, eventName: 'HostClaimed', logs: own, strict: true });
+        if (!claimed) throw new HostError('LOG_MISSING', `claimHost mined (${txHash}) but no HostClaimed log was emitted`);
+        return { sessionId: claimed.args.sessionId, amountWei: claimed.args.amount, txHash };
+      }),
   };
 }
 
@@ -125,6 +145,10 @@ export function createMockHostService(): HostService {
     },
     async finalize(sessionId) {
       return { sessionId, tokenId: sessionId, contributors: 0n, txHash: null };
+    },
+    // W21b: the simulator lives in the browser; the stage pulls the mock host share there.
+    async claimHost(sessionId) {
+      return { sessionId, amountWei: 0n, txHash: null };
     },
   };
 }

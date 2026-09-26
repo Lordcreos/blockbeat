@@ -216,6 +216,26 @@ describe('createChainEventSource', () => {
     expect(errors).toHaveLength(1);
   });
 
+  it('W21b: reads totalTipsOf and watches TipSplit logs (W21a), dropping pending ones', async () => {
+    const ws = fakeClient();
+    const http = fakeClient({ totalTipsOf: 25n });
+    const source = createChainEventSource({ ws: ws.client, http: http.client, address: ADDR });
+    expect(await source.readTotalTips?.(3n)).toBe(25n);
+    expect(http.readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'totalTipsOf', args: [3n] }));
+    const splits: unknown[] = [];
+    const errors: Error[] = [];
+    source.watchTipSplits?.({ sessionId: 3n, mode: 'ws', onSplits: (x) => splits.push(...x), onError: (e) => errors.push(e) });
+    expect(ws.current.eventName).toBe('TipSplit');
+    expect(ws.current.args).toEqual({ sessionId: 3n });
+    const log = { args: { sessionId: 3n, hostAmount: 1n, poolAmount: 4n }, blockNumber: 900n, transactionHash: TX, logIndex: 2 };
+    (ws.current.onLogs as unknown as (logs: unknown[]) => void)([log, { ...log, logIndex: null }]);
+    expect(splits).toEqual([{ sessionId: 3n, hostAmount: 1n, poolAmount: 4n, txHash: TX, logIndex: 2 }]);
+    expect(errors).toHaveLength(1);
+    source.watchTipSplits?.({ sessionId: 3n, mode: 'poll', onSplits: () => undefined, onError: () => undefined });
+    expect(http.current.eventName).toBe('TipSplit');
+    expect(http.current.poll).toBe(true);
+  });
+
   it('polls Tipped logs over http in poll mode (W12)', () => {
     const ws = fakeClient();
     const http = fakeClient();

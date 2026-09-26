@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseEther } from 'viem';
 import { BLOCK_MS, HIT_GAS_LIMIT, HIT_GAS_LIMIT_FIRST, HIT_MAX_PRIORITY_FEE_PER_GAS, MONAD_BASE_FEE_WEI, TIP_GAS_LIMIT, emptyPattern, isOn, stepForBlock, type HitEvent } from '@blockbeat/shared';
 import { createSimulator } from './simulator';
+import { createMemoryHub, parseBusMessage } from './bus';
 import { revertErrorName } from '../revert';
 
 /** Charged per unit of a hit's gas limit: base fee plus the fixed 2 gwei tip (W12). */
@@ -195,7 +196,10 @@ describe('createSimulator tips', () => {
     const receipt = sim.receipts.waitForReceipt(hash);
     vi.advanceTimersByTime(BLOCK_MS);
     expect(await receipt).toEqual({ blockNumber: 102n, status: 'success' });
-    expect((await sim.eventSource.readSession(1n))?.tipPool).toBe(5n);
+    // W21b (W21a split): 20 % to the host, the rest to the pool, fixed when the tip is mined.
+    expect((await sim.eventSource.readSession(1n))?.tipPool).toBe(4n);
+    expect(await sim.eventSource.readTotalTips?.(1n)).toBe(5n);
+    expect(sim.hostClaimableOf(1n)).toBe(1n);
     sim.stop();
   });
   it('keeps no balance for a wallet it never funded, so hits stay free (W12)', async () => {
@@ -239,11 +243,146 @@ describe('createSimulator tips', () => {
     vi.advanceTimersByTime(BLOCK_MS);
     const hash = await sim.tipWriterFor(OTHER)({ sessionId: 1n, valueWei: 5n });
     vi.advanceTimersByTime(BLOCK_MS);
-    expect(tips).toEqual([{ sessionId: 1n, from: OTHER, amountWei: 5n, blockNumber: 102n, txHash: hash, logIndex: 0 }]);
+    expect(tips).toEqual([{ sessionId: 1n, from: OTHER, amountWei: 5n, blockNumber: 102n, txHash: hash, logIndex: 0, split: { hostWei: 1n, poolWei: 4n } }]);
     off?.();
     await sim.tipWriterFor(OTHER)({ sessionId: 1n, valueWei: 5n });
     vi.advanceTimersByTime(BLOCK_MS);
     expect(tips).toHaveLength(1);
     sim.stop();
+  });
+});
+
+describe('createSimulator W21b: tip split, DJ and the mock bus', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const DJ = '0x00000000000000000000000000000000000000d3' as const;
+
+  it('gives the whole tip to the host while only the DJ has played, and summarises the session', async () => {
+    const sim = createSimulator({ startBlock: 100n, agent: DJ });
+    expect(sim.summary(1n)).toBeNull();
+    await sim.hitWriterFor(DJ)({ sessionId: 1n, track: 0, note: 0 });
+    sim.start();
+    vi.advanceTimersByTime(BLOCK_MS);
+    await sim.tipWriterFor(OTHER)({ sessionId: 1n, valueWei: parseEther('0.01') });
+    vi.advanceTimersByTime(BLOCK_MS);
+    await sim.hitWriterFor(PLAYER)({ sessionId: 1n, track: 1, note: 0 });
+    vi.advanceTimersByTime(BLOCK_MS);
+    await sim.tipWriterFor(OTHER)({ sessionId: 1n, valueWei: parseEther('0.02') });
+    vi.advanceTimersByTime(BLOCK_MS);
+    const summary = sim.summary(1n);
+    expect(summary?.hostWei).toBe(parseEther('0.01') + parseEther('0.004'));
+    expect(summary?.poolWei).toBe(parseEther('0.016'));
+    expect(summary?.hitCount).toBe(2n);
+    expect(summary?.contributors).toEqual([
+      { address: DJ, hits: 1n },
+      { address: PLAYER, hits: 1n },
+    ]);
+    expect(summary?.tips.map((t) => t.split)).toEqual([
+      { hostWei: parseEther('0.01'), poolWei: 0n },
+      { hostWei: parseEther('0.004'), poolWei: parseEther('0.016') },
+    ]);
+    sim.stop();
+  });
+
+  it('shares hits and tips between the simulators of two tabs over the bus', async () => {
+    const hub = createMemoryHub();
+    const phone = createSimulator({ startBlock: 100n, bus: hub.endpoint() });
+    const stage = createSimulator({ startBlock: 500n, bus: hub.endpoint() });
+    phone.start();
+    stage.start();
+    const seen: unknown[] = [];
+    stage.eventSource.watchTips?.({ sessionId: 3n, mode: 'ws', onTips: (t) => seen.push(...t), onError: () => undefined });
+    const hitHash = await phone.hitWriterFor(PLAYER)({ sessionId: 3n, track: 2, note: 5 });
+    await vi.advanceTimersByTimeAsync(BLOCK_MS);
+    const onStage = await stage.eventSource.readHits?.({ sessionId: 3n, fromBlock: 0n, toBlock: 10_000n });
+    expect(onStage?.hits.map((h) => [h.txHash, h.player, h.track, h.note])).toEqual([[hitHash, PLAYER, 2, 5]]);
+    const tipHash = await phone.tipWriterFor(OTHER)({ sessionId: 3n, valueWei: 10n });
+    await vi.advanceTimersByTimeAsync(BLOCK_MS);
+    expect(seen).toMatchObject([{ txHash: tipHash, from: OTHER, amountWei: 10n, split: { hostWei: 2n, poolWei: 8n } }]);
+    // No echo back: the phone holds the tip once.
+    await vi.advanceTimersByTimeAsync(BLOCK_MS * 3);
+    expect(phone.summary(3n)?.tips).toHaveLength(1);
+    phone.stop();
+    stage.stop();
+  });
+
+  it('a tab that opens a session later asks the others for what it already holds', async () => {
+    const hub = createMemoryHub();
+    const stage = createSimulator({ startBlock: 100n, bus: hub.endpoint() });
+    stage.start();
+    await stage.hitWriterFor(PLAYER)({ sessionId: 4n, track: 0, note: 0 });
+    await vi.advanceTimersByTimeAsync(BLOCK_MS);
+    await stage.tipWriterFor(OTHER)({ sessionId: 4n, valueWei: 10n });
+    await vi.advanceTimersByTimeAsync(BLOCK_MS);
+    const tipTab = createSimulator({ startBlock: 900n, bus: hub.endpoint() });
+    tipTab.start();
+    expect((await tipTab.eventSource.readSession(4n))?.hitCount).toBe(0n);
+    await vi.advanceTimersByTimeAsync(BLOCK_MS);
+    expect((await tipTab.eventSource.readSession(4n))?.hitCount).toBe(1n);
+    expect(tipTab.summary(4n)?.tips.map((t) => t.amountWei)).toEqual([10n]);
+    stage.stop();
+    tipTab.stop();
+  });
+
+  it('pays human players their share after finalize and the host its share any time; the DJ gets nothing', async () => {
+    const sim = createSimulator({ startBlock: 100n, agent: DJ });
+    await sim.hitWriterFor(PLAYER)({ sessionId: 5n, track: 0, note: 0 });
+    await sim.hitWriterFor(PLAYER)({ sessionId: 5n, track: 0, note: 1 });
+    await sim.hitWriterFor(OTHER)({ sessionId: 5n, track: 1, note: 0 });
+    await sim.hitWriterFor(DJ)({ sessionId: 5n, track: 2, note: 0 });
+    sim.start();
+    vi.advanceTimersByTime(BLOCK_MS);
+    await sim.tipWriterFor(OTHER)({ sessionId: 5n, valueWei: parseEther('0.03') });
+    vi.advanceTimersByTime(BLOCK_MS);
+    expect(sim.claimableOf(5n, PLAYER)).toBe(0n); // not finalized yet
+    expect(() => sim.claim(5n, PLAYER)).toThrow(/SessionNotFinalized/);
+    expect(sim.hostClaimableOf(5n)).toBe(parseEther('0.006'));
+    expect(sim.claimHost(5n)).toBe(parseEther('0.006'));
+    expect(sim.hostClaimableOf(5n)).toBe(0n);
+    expect(() => sim.claimHost(5n)).toThrow(/NothingToClaim/);
+    sim.finalize(5n, 9n);
+    expect(sim.sessionForToken(9n)).toBe(5n);
+    expect((await sim.eventSource.readSession(5n))?.finalized).toBe(true);
+    expect(sim.claimableOf(5n, PLAYER)).toBe(parseEther('0.016'));
+    expect(sim.claimableOf(5n, OTHER)).toBe(parseEther('0.008'));
+    expect(sim.claimableOf(5n, DJ)).toBe(0n);
+    sim.credit(PLAYER, 0n);
+    expect(sim.claim(5n, PLAYER)).toBe(parseEther('0.016'));
+    expect(sim.balanceOf(PLAYER)).toBe(parseEther('0.016'));
+    expect(sim.claimableOf(5n, PLAYER)).toBe(0n);
+    expect(() => sim.claim(5n, DJ)).toThrow(/NothingToClaim/);
+    sim.stop();
+  });
+
+  it('tells the other tabs when the stage finalizes a mock session', async () => {
+    const hub = createMemoryHub();
+    const stage = createSimulator({ startBlock: 100n, bus: hub.endpoint() });
+    const phone = createSimulator({ startBlock: 300n, bus: hub.endpoint() });
+    stage.start();
+    phone.start();
+    await phone.eventSource.readSession(6n);
+    const pushed: boolean[] = [];
+    phone.eventSource.watchSession?.({ sessionId: 6n, onSession: (s) => pushed.push(s.finalized) });
+    stage.finalize(6n, 6n);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pushed).toEqual([true]);
+    expect((await phone.eventSource.readSession(6n))?.finalized).toBe(true);
+    expect(phone.sessionForToken(6n)).toBe(6n);
+    stage.stop();
+    phone.stop();
+  });
+
+  it('ignores malformed bus messages', () => {
+    expect(parseBusMessage({ kind: 'finalize', sessionId: '1', tokenId: 'x' })).toBeNull();
+    expect(parseBusMessage({ kind: 'hit', sessionId: '1', player: 'nope', track: 0, note: 0, txHash: '0x1' })).toBeNull();
+    expect(parseBusMessage({ kind: 'tip', sessionId: '-1', from: PLAYER, amountWei: '1', txHash: `0x${'a'.repeat(64)}` })).toBeNull();
+    expect(parseBusMessage({ kind: 'sync', sessionId: '1', hits: [{}], tips: [] })).toBeNull();
+    expect(parseBusMessage('boom')).toBeNull();
   });
 });

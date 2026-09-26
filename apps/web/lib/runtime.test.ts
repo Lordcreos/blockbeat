@@ -5,6 +5,7 @@ import { FUNDS_SETTLE_MS, createRuntime } from './runtime';
 import { createSimulator } from './mock/simulator';
 import type { EventSource } from './eventFeed';
 import { loadOrCreateBurner } from './burner';
+import { revertErrorName } from './revert';
 
 describe('createRuntime (mock mode)', () => {
   beforeEach(() => {
@@ -261,7 +262,10 @@ describe('createRuntime tips (mock mode)', () => {
   });
 
   it('memoises the tip sender per session and tips through the simulator', async () => {
-    const rt = createRuntime({ mode: 'mock', simulator: createSimulator({ startBlock: 100n }), burner: loadOrCreateBurner({ storage: null }) });
+    const sim = createSimulator({ startBlock: 100n });
+    const player = loadOrCreateBurner({ storage: null });
+    const tipper = loadOrCreateBurner({ storage: null });
+    const rt = createRuntime({ mode: 'mock', simulator: sim, burner: player, tipper });
     const a = rt.acquireTipSender(1n);
     const b = rt.acquireTipSender(1n);
     expect(a.sender).toBe(b.sender);
@@ -275,6 +279,9 @@ describe('createRuntime tips (mock mode)', () => {
     const receipt = await p;
     expect(receipt.blockNumber).toBe(102n);
     expect(receipt.amountWei).toBe(5_000_000_000_000_000n);
+    // W21b: tips come from the tip page's own burner, never the player's.
+    expect(sim.summary(1n)?.tips.map((t) => t.from)).toEqual([tipper.address]);
+    expect(rt.tipper().address).toBe(tipper.address);
     a.release();
     a.release();
     b.release();
@@ -298,3 +305,48 @@ describe('createRuntime tipReadyAt (W12)', () => {
   });
 });
 
+
+describe('createRuntime W21b: claims and the mock finalize', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a player claims its share after the mock finalize; the host share is pulled apart', async () => {
+    const sim = createSimulator({ startBlock: 100n });
+    const player = loadOrCreateBurner({ storage: null });
+    const rt = createRuntime({ mode: 'mock', simulator: sim, burner: player, tipper: loadOrCreateBurner({ storage: null }) });
+    const hit = rt.acquireHitSender(3n);
+    const landed = hit.sender.send(3n, 0, 0);
+    await vi.advanceTimersByTimeAsync(300);
+    await landed;
+    const tip = rt.acquireTipSender(3n);
+    const tipped = tip.sender.send(3n, 10_000_000_000_000_000n);
+    await vi.advanceTimersByTimeAsync(300);
+    await tipped;
+    expect(await rt.readClaimable(3n, player.address)).toBe(0n);
+    expect(await rt.readHostClaimable(3n)).toBe(2_000_000_000_000_000n);
+    expect(rt.mockClaimHost(3n)).toBe(2_000_000_000_000_000n);
+    rt.mockFinalize(3n, 3n);
+    expect(await rt.readClaimable(3n, player.address)).toBe(8_000_000_000_000_000n);
+    expect(await rt.claimShare(3n)).toEqual({ txHash: null, amountWei: 8_000_000_000_000_000n });
+    await expect(rt.claimShare(3n)).rejects.toSatisfy((e: unknown) => revertErrorName(e) === 'NothingToClaim');
+    hit.release();
+    tip.release();
+  });
+
+  it('mockFinalize and mockClaimHost do nothing on chain', () => {
+    const chain = createRuntime({
+      mode: 'chain',
+      address: '0x00000000000000000000000000000000000000aa',
+      rpc: { http: 'https://rpc.invalid', ws: 'wss://ws.invalid' },
+      burner: loadOrCreateBurner({ storage: null }),
+      balances: { getBalance: async () => 0n },
+    });
+    expect(() => chain.mockFinalize(1n, 1n)).not.toThrow();
+    expect(chain.mockClaimHost(1n)).toBeNull();
+  });
+});

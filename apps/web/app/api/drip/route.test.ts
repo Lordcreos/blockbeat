@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hash } from 'viem';
 import { DripError, type DripService } from '@/lib/drip/service';
+import { TipperDripError, type TipperDripService } from '@/lib/drip/tipper';
 
 const TX = `0x${'cd'.repeat(32)}` as Hash;
 const A1 = '0x1111111111111111111111111111111111111111';
 
 const dripFn = vi.fn<DripService['drip']>();
+const tipperFn = vi.fn<TipperDripService['drip']>();
 vi.mock('@/lib/drip/runtime', () => ({
   getDripService: (): DripService => ({ drip: dripFn, stats: () => ({ fundedAddresses: 0, ipBuckets: 0 }) }),
+  getTipperDripService: (): TipperDripService => ({ drip: tipperFn, stats: () => ({ funded: 0, remaining: 0 }) }),
 }));
 
 const { POST } = await import('./route');
@@ -23,6 +26,7 @@ function post(body: unknown, headers: Record<string, string> = {}): Request {
 describe('POST /api/drip', () => {
   beforeEach(() => {
     dripFn.mockReset();
+    tipperFn.mockReset();
   });
 
   it('returns 400 on malformed JSON', async () => {
@@ -145,5 +149,41 @@ describe('POST /api/drip', () => {
     const full = await POST(post({ address: A1, sessionId: '12' }));
     expect(full.status).toBe(409);
     expect(((await full.json()) as { error: { code: string } }).error.code).toBe('ROOM_FULL');
+  });
+});
+
+describe('POST /api/drip mode "tipper" (W21b)', () => {
+  beforeEach(() => {
+    dripFn.mockReset();
+    tipperFn.mockReset();
+  });
+
+  it('funds a tipper wallet through the tipper service, never the player drip', async () => {
+    tipperFn.mockResolvedValueOnce({ txHash: TX, alreadyFunded: false, amountWei: '100000000000000000' });
+    const res = await POST(post({ address: A1, mode: 'tipper', sessionId: '7' }, { 'cf-connecting-ip': '198.51.100.7' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ txHash: TX, alreadyFunded: false, amountWei: '100000000000000000' });
+    expect(tipperFn).toHaveBeenCalledWith({ address: A1, ip: '198.51.100.7', sessionId: 7n });
+    expect(dripFn).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown mode and a tipper top-up', async () => {
+    const bad = await POST(post({ address: A1, mode: 'faucet' }));
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { code: string } }).error.code).toBe('INVALID_MODE');
+    expect((await POST(post({ address: A1, mode: 'tipper', topUp: true, sessionId: '7' }))).status).toBe(400);
+    const noSession = await POST(post({ address: A1, mode: 'tipper' }));
+    expect(noSession.status).toBe(400);
+    expect(((await noSession.json()) as { error: { code: string } }).error.code).toBe('INVALID_SESSION');
+    expect(tipperFn).not.toHaveBeenCalled();
+  });
+
+  it('maps tipper errors with Retry-After', async () => {
+    tipperFn.mockRejectedValueOnce(new TipperDripError('RATE_LIMITED', 'too many', { retryAfterMs: 2_500 }));
+    const res = await POST(post({ address: A1, mode: 'tipper', sessionId: 7 }));
+    expect(res.status).toBe(429);
+    expect(res.headers.get('retry-after')).toBe('3');
+    tipperFn.mockRejectedValueOnce(new TipperDripError('TIPPERS_EXHAUSTED', 'no more'));
+    expect((await POST(post({ address: A1, mode: 'tipper', sessionId: 7 }))).status).toBe(503);
   });
 });

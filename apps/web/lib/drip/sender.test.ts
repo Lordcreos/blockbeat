@@ -178,6 +178,14 @@ describe('createChainDripSender', () => {
     await sender.send(TO);
     expect(sendTransaction).toHaveBeenCalledWith(expect.objectContaining({ value: parseEther('0.1') }));
   });
+
+  it('W21b: a per-send amount (the tipper drip) overrides the default for that send only, on the same queue', async () => {
+    const sendTransaction = vi.fn(async () => TX);
+    const wallet = { sendTransaction, chain: monadTestnet } as unknown as WalletClient<Transport, Chain, Account>;
+    const sender = createChainDripSender({ wallet });
+    await Promise.all([sender.send(TO, parseEther('0.1')), sender.send(TO)]);
+    expect(sendTransaction.mock.calls.map((c) => (c as unknown as [{ value: bigint }])[0].value)).toEqual([parseEther('0.1'), parseEther(DRIP_AMOUNT_MON)]);
+  });
 });
 
 describe('dripAccountFromEnv', () => {

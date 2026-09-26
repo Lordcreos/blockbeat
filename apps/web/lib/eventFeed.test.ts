@@ -434,8 +434,9 @@ describe('createEventFeed', () => {
     f.currentTips.onTips([tip()]); // duplicate delivery
     expect(seen).toHaveLength(1);
     expect(feed.getState().tipCount).toBe(4);
-    expect(feed.getState().tipPoolWei).toBe(20_000_000_000_000_000n);
-    expect(feed.getState().session?.tipPool).toBe(20_000_000_000_000_000n);
+    // W21a: a Tipped log alone says nothing about the pool (its TipSplit does); raised counts it all.
+    expect(feed.getState().tipPoolWei).toBe(15_000_000_000_000_000n);
+    expect(feed.getState().raisedWei).toBe(20_000_000_000_000_000n);
   });
 
   it('keeps the chain pool on a resync without double counting live tips (W12)', async () => {
@@ -462,6 +463,85 @@ describe('createEventFeed', () => {
     expect(f.current.mode).toBe('ws');
     feed.stop();
     expect(f.tipWatches.every((w) => !w.active)).toBe(true);
+  });
+
+  it('W21b: with tipTotals, raised = totalTipsOf at load, then every Tipped amount; the pool grows by TipSplit only', async () => {
+    const f = fakeSource();
+    f.chain.session = { ...(f.chain.session as SessionState), tipPool: 16n };
+    const splitWatches: Array<Parameters<NonNullable<EventSource['watchTipSplits']>>[0]> = [];
+    const source: EventSource = {
+      ...f.source,
+      readTotalTips: vi.fn(async () => 20n),
+      watchTipSplits: (args) => {
+        splitWatches.push(args);
+        return () => undefined;
+      },
+    };
+    const feed = createEventFeed({ sessionId: 1n, source, tipTotals: true });
+    await feed.start();
+    expect(feed.getState().raisedWei).toBe(20n);
+    // The simulator hands the split with the tip.
+    f.currentTips.onTips([tip({ amountWei: 10n, split: { hostWei: 2n, poolWei: 8n } })]);
+    expect(feed.getState().raisedWei).toBe(30n);
+    expect(feed.getState().tipPoolWei).toBe(24n);
+    // On chain the split is its own log, right after the Tipped.
+    const chainTip = `0x${'aa'.repeat(32)}` as const;
+    f.currentTips.onTips([tip({ txHash: chainTip, amountWei: 5n })]);
+    expect(feed.getState().raisedWei).toBe(35n);
+    expect(feed.getState().tipPoolWei).toBe(24n);
+    const split = { sessionId: 1n, hostAmount: 1n, poolAmount: 4n, txHash: chainTip, logIndex: 1 };
+    splitWatches.at(-1)?.onSplits([split]);
+    splitWatches.at(-1)?.onSplits([split]); // duplicate delivery
+    expect(feed.getState().tipPoolWei).toBe(28n);
+    expect(feed.getState().tips.at(-1)?.split).toEqual({ hostWei: 1n, poolWei: 4n });
+  });
+
+  it('W21b: without tipTotals the feed neither reads totalTipsOf nor watches TipSplit (phones)', async () => {
+    const f = fakeSource();
+    const readTotalTips = vi.fn(async () => 99n);
+    const watchTipSplits = vi.fn(() => () => undefined);
+    const feed = createEventFeed({ sessionId: 1n, source: { ...f.source, readTotalTips, watchTipSplits } });
+    await feed.start();
+    expect(readTotalTips).not.toHaveBeenCalled();
+    expect(watchTipSplits).not.toHaveBeenCalled();
+  });
+
+  it('W21b: keeps the live tips newest last, capped, for the stage list', async () => {
+    const f = fakeSource();
+    const feed = createEventFeed({ sessionId: 1n, source: f.source });
+    await feed.start();
+    expect(feed.getState().tips).toEqual([]);
+    const many = Array.from({ length: 60 }, (_, i) => tip({ txHash: `0x${i.toString(16).padStart(64, '0')}`, blockNumber: 200n + BigInt(i) }));
+    f.currentTips.onTips(many);
+    const { tips } = feed.getState();
+    expect(tips).toHaveLength(50);
+    expect(tips.at(-1)?.blockNumber).toBe(259n);
+  });
+
+  it('W21b: raised without a totalTipsOf read falls back to the pool', async () => {
+    const f = fakeSource();
+    f.chain.session = { ...(f.chain.session as SessionState), tipPool: 7n };
+    const feed = createEventFeed({ sessionId: 1n, source: f.source });
+    await feed.start();
+    expect(feed.getState().raisedWei).toBe(7n);
+  });
+
+  it('W21b: takes a session the source pushes (the mock finalize) and keeps its own pool', async () => {
+    const f = fakeSource();
+    const pushes: Array<(s: SessionState) => void> = [];
+    const source: EventSource = {
+      ...f.source,
+      watchSession: ({ onSession }) => {
+        pushes.push(onSession);
+        return () => undefined;
+      },
+    };
+    const feed = createEventFeed({ sessionId: 1n, source });
+    await feed.start();
+    f.currentTips.onTips([tip({ split: { hostWei: 1n, poolWei: 4n } })]);
+    pushes[0]?.({ ...(f.chain.session as SessionState), finalized: true, tokenId: 1n, tipPool: 0n });
+    expect(feed.getState().session?.finalized).toBe(true);
+    expect(feed.getState().session?.tipPool).toBe(4n);
   });
 
   it('works with a source that has no tip watch (W12)', async () => {

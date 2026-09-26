@@ -9,6 +9,7 @@
  */
 import { NextResponse } from 'next/server';
 import { isMockMode } from '@/lib/chain/clients';
+import { crowdEnabled } from '@/lib/crowd/flag';
 import { crowdFailure, joinBaseFor, readCrowdStart } from '@/lib/crowd/http';
 import { getCrowdManager } from '@/lib/crowd/runtime';
 import { authorize, errorResponse, tooLarge } from '@/lib/host/http';
@@ -19,6 +20,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request): Promise<NextResponse> {
   const denied = authorize(request) ?? tooLarge(request);
   if (denied) return denied;
+  if (!crowdEnabled()) return errorResponse('CROWD_DISABLED', 'the crowd simulator is off: set NEXT_PUBLIC_CROWD_ENABLED=1 and restart the server', 503);
   const body = await readCrowdStart(request);
   if (typeof body === 'string') return errorResponse('INVALID_REQUEST', body, 400);
   if (isMockMode()) return errorResponse('CROWD_NEEDS_CHAIN', 'the simulated players play on a real chain; this app runs the in-memory simulator', 503);

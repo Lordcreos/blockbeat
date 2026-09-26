@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { encodeAbiParameters, encodeEventTopics, type Hash, type Hex, type Log } from 'viem';
 import { blockbeatAbi } from '@blockbeat/shared';
-import { createChainHostService, createMockHostService, FINALIZE_GAS_LIMIT, HostError, START_SESSION_GAS_LIMIT } from './service';
+import { createChainHostService, createMockHostService, FINALIZE_GAS_LIMIT, HOST_CLAIM_GAS_LIMIT, HostError, START_SESSION_GAS_LIMIT } from './service';
 
 const ADDRESS = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as const;
 const HOST = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as const;
@@ -102,7 +102,33 @@ describe('chain host service', () => {
   });
 });
 
+function hostClaimedLog(sessionId: bigint, amount: bigint, address: `0x${string}` = ADDRESS): Log {
+  return {
+    ...finalizedLog(sessionId, 1n, 0n),
+    address,
+    topics: encodeEventTopics({ abi: blockbeatAbi, eventName: 'HostClaimed', args: { sessionId, host: HOST } }) as [Hex, ...Hex[]],
+    data: encodeAbiParameters([{ type: 'uint256' }], [amount]),
+  };
+}
+
+describe('chain host service claimHost (W21b)', () => {
+  it('pulls the host share with the fixed gas limit and returns the amount from the HostClaimed log', async () => {
+    const { service, writeContract } = deps([hostClaimedLog(7n, 4_000n)]);
+    expect(await service.claimHost(7n)).toEqual({ sessionId: 7n, amountWei: 4_000n, txHash: TX });
+    expect(writeContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'claimHost', args: [7n], gas: HOST_CLAIM_GAS_LIMIT }));
+  });
+
+  it('refuses a HostClaimed log from another contract and maps a revert (NothingToClaim, NotHost) to TX_REVERTED', async () => {
+    await expect(deps([hostClaimedLog(7n, 1n, '0x00000000000000000000000000000000000bad00')]).service.claimHost(7n)).rejects.toMatchObject({ code: 'LOG_MISSING' });
+    await expect(deps([], 'reverted').service.claimHost(7n)).rejects.toMatchObject({ code: 'TX_REVERTED' });
+  });
+});
+
 describe('mock host service', () => {
+  it('W21b: claimHost sends nothing (the simulator in the browser pays the mock share)', async () => {
+    expect(await createMockHostService().claimHost(4n)).toEqual({ sessionId: 4n, amountWei: 0n, txHash: null });
+  });
+
   it('hands out increasing session ids from 1 and mints token = session id with no tx', async () => {
     const service = createMockHostService();
     expect(await service.startSession()).toEqual({ sessionId: 1n, txHash: null });

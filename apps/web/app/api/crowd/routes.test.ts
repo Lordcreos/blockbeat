@@ -36,8 +36,17 @@ describe('/api/crowd/* (W19)', () => {
     vi.stubEnv('NEXT_PUBLIC_BLOCKBEAT_MOCK', '');
     vi.stubEnv('NEXT_PUBLIC_JOIN_BASE_URL', '');
     vi.stubEnv('NEXT_PUBLIC_BLOCKBEAT_ADDRESS', '0x5FbDB2315678afecb367f032d93F642f64180aa3');
+    vi.stubEnv('NEXT_PUBLIC_CROWD_ENABLED', '1');
   });
   afterEach(() => vi.unstubAllEnvs());
+
+  it('start is refused with 503 CROWD_DISABLED while NEXT_PUBLIC_CROWD_ENABLED is not 1', async () => {
+    vi.stubEnv('NEXT_PUBLIC_CROWD_ENABLED', '');
+    const res = await startRoute.POST(post('start', { sessionId: '3' }, auth));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe('CROWD_DISABLED');
+    expect(start).not.toHaveBeenCalled();
+  });
 
   it('every route needs the host secret, and a missing server secret is 503', async () => {
     expect((await startRoute.POST(post('start', { sessionId: '3' }))).status).toBe(401);
