@@ -13,7 +13,8 @@ test.describe('join', () => {
     await page.goto('/join/1');
     await expect(page.getByTestId('pads').getByRole('button')).toHaveCount(8);
     await expect(page.getByTestId('track-name')).toBeVisible();
-    await expect(page.getByRole('button', { name: /tip the room/i })).toBeVisible();
+    // W21b: tips moved to /tip/[session] (the stage's second code).
+    await expect(page.getByRole('button', { name: /tip the room/i })).toHaveCount(0);
   });
 
   test('a tap produces a landing line', async ({ page }) => {

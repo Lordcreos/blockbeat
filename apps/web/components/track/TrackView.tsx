@@ -1,22 +1,26 @@
 import Link from 'next/link';
-import { formatEther } from 'viem';
 import { formatInt, shortAddress } from '@/components/format';
+import type { TipLine } from '@/lib/tips/tipList';
 import type { TrackView as TrackData } from '@/lib/track/read';
+import type { TrackTipTotals } from '@/lib/track/tips';
 import { encodePatternProp } from '@/lib/track/pattern';
 import { ShareButton } from './ShareButton';
 import { TrackPlayer } from './TrackPlayer';
+import { TrackTips } from './TrackTips';
 
 interface TrackViewProps {
   track: TrackData;
   /** Explorer page for the token, or null on chains without one (anvil). */
   explorerUrl: string | null;
+  /** W21b: the session's tip views (null on a contract without the split) and its tips, newest first. */
+  tips?: { totals: TrackTipTotals | null; lines: readonly TipLine[] };
 }
 
 const muted = { fontSize: 'var(--text-md)', color: 'var(--ink-muted)' } as const;
 const label = { fontSize: 'var(--text-sm)', color: 'var(--ink-muted)', fontWeight: 500 } as const;
 
 /** One finalized track: the onchain SVG framed as a record sleeve you can play (W15), its attributes and who played it. Server component; the player is a client island. */
-export function TrackView({ track, explorerUrl }: TrackViewProps) {
+export function TrackView({ track, explorerUrl, tips }: TrackViewProps) {
   const { metadata } = track;
   const contributors = track.contributors.length;
   return (
@@ -80,49 +84,18 @@ export function TrackView({ track, explorerUrl }: TrackViewProps) {
               <dd className="num">#{track.tokenId.toString()}</dd>
               <dt style={{ color: 'var(--ink-muted)' }}>host</dt>
               <dd className="num" title={track.host} style={{ fontFamily: 'var(--font-mono)' }}>{shortAddress(track.host)}</dd>
-              <dt style={{ color: 'var(--ink-muted)' }}>tip pool</dt>
-              <dd className="num" data-testid="tip-pool">{formatEther(track.tipPool)} MON</dd>
             </dl>
           </section>
 
-          <section aria-label="Contributors" className="flex flex-col gap-3">
-            <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, letterSpacing: '-0.01em' }}>
-              Contributors <span className="num" style={{ color: 'var(--ink-muted)', fontWeight: 500 }}>({formatInt(contributors)})</span>
-            </h2>
-            {contributors === 0 ? (
-              <p style={muted}>Nobody played this session.</p>
-            ) : (
-              <table data-testid="contributors" className="w-full border-collapse" style={{ fontSize: 'var(--text-md)' }}>
-                <thead>
-                  <tr style={{ color: 'var(--ink-muted)', textAlign: 'left', fontSize: 'var(--text-sm)' }}>
-                    <th className="pb-2 font-medium">Player</th>
-                    <th className="pb-2 text-right font-medium">Hits</th>
-                    <th className="pb-2 pl-6 text-right font-medium" style={{ width: '38%' }}>Share</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {track.contributors.map((c) => {
-                    const pct = Math.round(c.share * 100);
-                    return (
-                      <tr key={c.address} data-player={c.address} style={{ borderTop: '1px solid var(--line)' }}>
-                        <td className="num py-3" title={c.address} style={{ fontFamily: 'var(--font-mono)' }}>{shortAddress(c.address)}</td>
-                        <td className="num py-3 text-right">{formatInt(c.hits)}</td>
-                        <td className="num py-3 pl-6">
-                          <span className="flex items-center gap-3">
-                            <span aria-hidden="true" className="h-[6px] flex-1 overflow-hidden rounded-full" style={{ background: 'var(--surface-2)' }}>
-                              <span className="block h-full rounded-full" style={{ width: `${Math.max(2, pct)}%`, background: 'var(--ink)' }} />
-                            </span>
-                            <span className="w-[4ch] text-right">{pct}%</span>
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-muted)' }}>Tips split pro rata by hits. Each player claims their own share.</p>
-          </section>
+          {/* W21b: raised, the host's 20 %, the players' 80 % by notes (the DJ takes none) and every tip. */}
+          <TrackTips
+            hostWei={tips?.totals?.hostWei ?? null}
+            hostClaimableWei={tips?.totals?.hostClaimableWei ?? null}
+            poolWei={track.tipPool}
+            contributors={track.contributors}
+            agent={tips?.totals?.agent ?? null}
+            lines={tips?.lines ?? []}
+          />
         </div>
       </div>
 

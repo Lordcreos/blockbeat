@@ -13,7 +13,10 @@ import { BLOCK_MS, RESERVE_PACING_BLOCKS } from '@blockbeat/shared';
 import { revertErrorName } from './revert';
 import type { TipReceipt, TipSender } from './types';
 
-/** Fixed audience tip. Product constant of the web app, not part of the contract interface. */
+/**
+ * Default tip when `send` is given no amount. W21b: the tip page always passes the amount the
+ * tipper picked (lib/tips/constants.ts); this stays for the pool-count estimate in the feed.
+ */
 export const TIP_AMOUNT_MON = '0.005';
 
 /** Custom error the contract raises for a tip to a session without hits (decoded by name, review H10). */
@@ -126,11 +129,11 @@ export function createTipSender(options: TipSenderOptions): TipSender {
   }
 
   /** Classify an onchain revert; without a diagnosis it stays a generic SEND_FAILED. */
-  async function explainReverted(sessionId: bigint, txHash: Hash): Promise<TipError> {
+  async function explainReverted(sessionId: bigint, valueWei: bigint, txHash: Hash): Promise<TipError> {
     if (!receipts.explainRevert) return new TipError('SEND_FAILED', 'tip transaction reverted', { txHash });
     let reason: string;
     try {
-      reason = await receipts.explainRevert({ sessionId, valueWei: amountWei });
+      reason = await receipts.explainRevert({ sessionId, valueWei });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return new TipError('SEND_FAILED', `tip transaction reverted (diagnosis failed: ${message})`, { cause: error, txHash });
@@ -139,10 +142,11 @@ export function createTipSender(options: TipSenderOptions): TipSender {
     return new TipError('SEND_FAILED', `tip transaction reverted: ${reason}`, { txHash });
   }
 
-  function send(sessionId: bigint): Promise<TipReceipt> {
+  function send(sessionId: bigint, valueWei: bigint = amountWei): Promise<TipReceipt> {
     if (sessionId <= 0n) {
       return Promise.reject(new TipError('INVALID_ARGS', `sessionId must be positive, got ${sessionId}`));
     }
+    if (valueWei <= 0n) return Promise.reject(new TipError('INVALID_ARGS', `a tip must be above zero, got ${valueWei}`));
     inFlight += 1;
     return new Promise<TipReceipt>((resolve, reject) => {
       let sentAt = now();
@@ -180,7 +184,7 @@ export function createTipSender(options: TipSenderOptions): TipSender {
         });
       gate = cleared.catch(() => undefined);
       cleared
-        .then((go) => (go ? writer({ sessionId, valueWei: amountWei }) : null))
+        .then((go) => (go ? writer({ sessionId, valueWei }) : null))
         .then(
         (hash) => {
           if (settled || hash === null) return;
@@ -188,10 +192,10 @@ export function createTipSender(options: TipSenderOptions): TipSender {
           receipts.waitForReceipt(hash).then(
             (receipt) => {
               if (receipt.status !== 'success') {
-                explainReverted(sessionId, hash).then(fail, (error: unknown) => fail(toError(error)));
+                explainReverted(sessionId, valueWei, hash).then(fail, (error: unknown) => fail(toError(error)));
                 return;
               }
-              finish({ txHash: hash, blockNumber: receipt.blockNumber, amountWei, latencyMs: Math.max(0, now() - sentAt) });
+              finish({ txHash: hash, blockNumber: receipt.blockNumber, amountWei: valueWei, latencyMs: Math.max(0, now() - sentAt) });
             },
             (error: unknown) => fail(new TipError('SEND_FAILED', `receipt lookup failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error, txHash: hash })),
           );

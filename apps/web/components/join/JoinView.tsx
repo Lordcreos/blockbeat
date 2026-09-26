@@ -1,22 +1,20 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TRACK_META, type TrackId } from '@blockbeat/shared';
 import Link from 'next/link';
 import { createPreviewVoice, type PreviewVoice } from '@/lib/audio/preview';
 import { isTopUpEligibleBalance } from '@/lib/funding';
-import { useBalance, useBurner, useDrip, useEventFeed, useHitSender, useTip, useTopUp } from '@/lib/hooks';
+import { useBalance, useBurner, useDrip, useEventFeed, useHitSender, useTopUp } from '@/lib/hooks';
 import { MAX_AIMED, type AimRejection, type AimResult } from '@/lib/join/aimQueue';
 import { padsFor } from '@/lib/join/pads';
 import { tourSteps } from '@/lib/join/tour';
 import { useAimQueue, usePhoneClock, usePhonePref, useSeenFlag } from '@/lib/join/usePhone';
-import { TIP_AMOUNT_MON, TipError } from '@/lib/tipSender';
-import { createTipTally, subscribeTipTallies } from '@/lib/tipTally';
-import { formatInt } from '@/components/format';
 import { useNow } from '@/components/useNow';
 import { fundingLine, topUpMessage } from './funding-line';
 import { fundsPill, type PillTone } from './funds-pill';
 import { hitMessage, isOutOfFunds } from './hit-message';
 import { landingText, type LandingLine, type PhoneMode } from './landing-line';
+import { ClaimShare } from './ClaimShare';
 import { ModeBar } from './ModeBar';
 import { PadGrid } from './PadGrid';
 import { StepGrid, noteLabel } from './StepGrid';
@@ -68,7 +66,6 @@ export function JoinView({ sessionId }: JoinViewProps) {
   const { drip, loading, error, phase: dripPhase, roomFull } = useDrip(burner?.address ?? null, sessionId);
   const topUp = useTopUp(burner?.address ?? null);
   const { send } = useHitSender(sessionId);
-  const { tip, pending: tipping, readyAt: tipReadyAt } = useTip(sessionId);
   // One feed per phone: the live notes on the step grid, and when the host finalizes (a tap
   // after that would revert and still cost the player the full gas limit).
   const feed = useEventFeed(sessionId);
@@ -80,11 +77,6 @@ export function JoinView({ sessionId }: JoinViewProps) {
   const [lineSeq, setLineSeq] = useState(0);
   const [flash, setFlash] = useState<{ index: number; seq: number } | null>(null);
   const [inflight, setInflight] = useState(0);
-  const [tipNote, setTipNote] = useState<string | null>(null);
-  /** W12: while a tip is held by the Monad reserve rule, when it goes out (for the countdown). */
-  const [tipWaitUntil, setTipWaitUntil] = useState<number | null>(null);
-  const tipTally = useMemo(() => (burner ? createTipTally({ address: burner.address, sessionId }) : null), [burner, sessionId]);
-  const tipsSent = useSyncExternalStore(subscribeTipTallies, () => tipTally?.count() ?? 0, () => 0);
   const [landedStep, setLandedStep] = useState<number | null>(null);
   /** Bumped only when a note really lands, so the grid never replays for a failed tap. */
   const [landSeq, setLandSeq] = useState(0);
@@ -106,14 +98,13 @@ export function JoinView({ sessionId }: JoinViewProps) {
   const warming = !error && !ready;
   const padsEnabled = ready && !finalized;
   const aiming = mode === 'aim';
-  // W12: the balance is read once the drip is spendable and again after every landed hit or tip.
-  // W19: a phone turned away by a full room still reads its balance: MON left from before can tip.
+  // W12: the balance is read once the drip is spendable and again after every landed hit.
+  // W19: a phone turned away by a full room still reads its balance.
   const balance = useBalance(burner?.address ?? null, sessionId, ready || roomFull, landSeq > 0);
-  const canTipWhileWatching = roomFull && balance.balanceWei !== null && balance.balanceWei > 0n;
   /** Set when the node refused a hit for funds; cleared when a later hit lands. */
   const [forcedOut, setForcedOut] = useState(false);
   const funds = forcedOut ? 'out' : balance.level;
-  const countdownActive = dripPhase?.kind === 'settling' || topUp.phase?.kind === 'settling' || tipWaitUntil !== null;
+  const countdownActive = dripPhase?.kind === 'settling' || topUp.phase?.kind === 'settling';
   const now = useNow(countdownActive, 100);
   const fundingText = warming ? fundingLine(dripPhase, 'drip', now) : fundingLine(topUp.phase, 'topUp', now);
   const toppingUp = topUp.phase !== null;
@@ -273,26 +264,6 @@ export function JoinView({ sessionId }: JoinViewProps) {
     balance.refresh();
   };
 
-  const tipRoom = async () => {
-    setTipNote('tipping…');
-    setTipWaitUntil(tipReadyAt());
-    try {
-      const receipt = await tip();
-      tipTally?.add();
-      balance.refresh();
-      setTipNote(`Tip landed · block ${formatInt(receipt.blockNumber)}`);
-    } catch (err) {
-      if (err instanceof TipError && err.code === 'NO_HITS') {
-        setTipNote('Tip the room after the first note lands');
-      } else {
-        setTipNote(`tip failed · ${err instanceof Error ? err.message : 'unknown error'}`);
-      }
-    } finally {
-      setTipWaitUntil(null);
-    }
-  };
-  const tipLine = tipWaitUntil !== null && tipWaitUntil > now ? `Tip waits ${((tipWaitUntil - now) / 1000).toFixed(1)} s · Monad reserve rule` : tipNote;
-
   const accent = track?.colour ?? 'var(--surface-3)';
   const pill = fundsPill({
     error: Boolean(error),
@@ -403,7 +374,7 @@ export function JoinView({ sessionId }: JoinViewProps) {
           <p style={{ fontSize: 'var(--text-md)', color: 'var(--ink-muted)' }}>
             Every seat in this session has a wallet already. The music on the big screen is the room playing; the next session has room again.
           </p>
-          {!canTipWhileWatching && <p style={{ fontSize: 'var(--text-md)' }}>You are watching: this phone has no MON to tip with.</p>}
+          <p style={{ fontSize: 'var(--text-md)' }}>You can still tip the song: scan the Tips code on the big screen.</p>
         </section>
       ) : error ? (
         <section
@@ -472,6 +443,8 @@ export function JoinView({ sessionId }: JoinViewProps) {
       )}
 
       <footer className="flex flex-col gap-2 px-4 pb-3 pt-2">
+        {/* W21b: after the mint, a human player's share of the tips, claimed with this burner. */}
+        {finalized && burner && <ClaimShare sessionId={sessionId} address={burner.address} />}
         {error ? null : (
           <p
             data-testid="landing-line"
@@ -540,18 +513,8 @@ export function JoinView({ sessionId }: JoinViewProps) {
             )}
           </div>
         )}
-        <div className="flex items-center justify-between gap-3">
-          {(!roomFull || canTipWhileWatching) && (
-            <button
-              type="button"
-              onClick={() => void tipRoom()}
-              disabled={tipping || !(ready || canTipWhileWatching)}
-              className="min-h-[44px] rounded-full px-5 py-2 font-semibold disabled:opacity-60"
-              style={{ fontSize: 'var(--text-md)', background: 'var(--surface-2)', border: '1px solid var(--line-strong)' }}
-            >
-              Tip the room
-            </button>
-          )}
+        {/* W21b: tips moved to their own page (/tip/[session], the stage's second QR). */}
+        <div className="flex items-center justify-end gap-3">
           {/* W16: replays the first-visit tour; a labelled button, where the thumb already is. */}
           {track && !finalized && (
             <button
@@ -572,16 +535,6 @@ export function JoinView({ sessionId }: JoinViewProps) {
             </button>
           )}
         </div>
-        <span className="flex flex-col items-end gap-1 text-right">
-          <span data-testid="tip-line" role="status" aria-live="polite" className="num" style={{ fontSize: 'var(--text-sm)', color: tipNote?.startsWith('Tip landed') ? 'var(--ink)' : 'var(--ink-muted)' }}>
-            {tipLine ?? ''}
-          </span>
-          {tipsSent > 0 && (
-            <span data-testid="tip-tally" className="num" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-muted)' }}>
-              {`You tipped ${tipsSent} ${tipsSent === 1 ? 'time' : 'times'} · ${TIP_AMOUNT_MON} MON each`}
-            </span>
-          )}
-        </span>
       </footer>
       <Tour steps={steps} open={tourOpen} onClose={closeTour} />
     </main>

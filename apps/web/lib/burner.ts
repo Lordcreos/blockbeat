@@ -10,6 +10,8 @@ import { createLocalNonceManager } from './localNonce';
 import type { BurnerWallet } from './types';
 
 export const BURNER_STORAGE_KEY = 'blockbeat:burner:pk:v1';
+/** W21b: the tip page's burner, funded by the tipper drip; kept apart from the player's key. */
+export const TIPPER_BURNER_STORAGE_KEY = 'blockbeat:tipper:pk:v1';
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -33,6 +35,8 @@ export interface LoadBurnerOptions {
   storage?: StorageLike | null;
   /** Non-fatal problems are reported here (never with key material). Defaults to console.warn. */
   warn?: (message: string) => void;
+  /** W21b: where the key lives; defaults to BURNER_STORAGE_KEY (the player). */
+  storageKey?: string;
 }
 
 const PK_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -53,11 +57,12 @@ function toAccount(privateKey: Hex): PrivateKeyAccount {
 export function loadOrCreateBurner(options: LoadBurnerOptions = {}): BurnerAccount {
   const storage = options.storage === undefined ? defaultStorage() : options.storage;
   const warn = options.warn ?? ((m: string) => console.warn(m));
+  const key = options.storageKey ?? BURNER_STORAGE_KEY;
 
   let stored: string | null = null;
   if (storage) {
     try {
-      stored = storage.getItem(BURNER_STORAGE_KEY);
+      stored = storage.getItem(key);
     } catch (error) {
       warn(`burner: localStorage read failed (${describe(error)}); using a memory-only key`);
     }
@@ -76,7 +81,7 @@ export function loadOrCreateBurner(options: LoadBurnerOptions = {}): BurnerAccou
   let persisted = false;
   if (storage) {
     try {
-      storage.setItem(BURNER_STORAGE_KEY, privateKey);
+      storage.setItem(key, privateKey);
       persisted = true;
     } catch (error) {
       warn(`burner: localStorage write failed (${describe(error)}); key will not survive a reload`);

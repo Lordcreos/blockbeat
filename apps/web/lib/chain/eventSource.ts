@@ -13,8 +13,9 @@ import {
   type HitEvent,
   type Pattern,
   type SessionState,
+  type TipSplitEvent,
 } from '@blockbeat/shared';
-import type { EventSource, HitRange, HitRangeQuery, HitWatchArgs, TipWatchArgs } from '../eventFeed';
+import type { EventSource, HitRange, HitRangeQuery, HitWatchArgs, TipSplitWatchArgs, TipWatchArgs } from '../eventFeed';
 import type { TipEvent } from '../types';
 
 export class HitDecodeError extends Error {
@@ -86,6 +87,20 @@ export function decodeTipLog(log: RawTipLog): TipEvent {
   };
 }
 
+/** The fields of a strict `TipSplit` log this module needs (W21a). */
+export interface RawTipSplitLog {
+  args: { sessionId: bigint; hostAmount: bigint; poolAmount: bigint };
+  transactionHash: Hash | null;
+  logIndex: number | null;
+}
+
+export function decodeTipSplitLog(log: RawTipSplitLog): TipSplitEvent {
+  if (log.transactionHash === null || log.logIndex === null) {
+    throw new HitDecodeError('TipSplit log is pending: missing transactionHash or logIndex');
+  }
+  return { sessionId: log.args.sessionId, hostAmount: log.args.hostAmount, poolAmount: log.args.poolAmount, txHash: log.transactionHash, logIndex: log.logIndex };
+}
+
 export interface ChainEventSourceOptions {
   ws: PublicClient | null;
   http: PublicClient;
@@ -141,6 +156,27 @@ export function createChainEventSource(options: ChainEventSourceOptions): EventS
 
     readHead(): Promise<bigint> {
       return http.getBlockNumber({ cacheTime: 0 });
+    },
+
+    readTotalTips(sessionId): Promise<bigint> {
+      return http.readContract({ address, abi: blockbeatAbi, functionName: 'totalTipsOf', args: [sessionId] });
+    },
+
+    watchTipSplits({ sessionId, mode, pollingIntervalMs, onSplits, onError }: TipSplitWatchArgs): () => void {
+      const onLogs = (logs: readonly RawTipSplitLog[]): void => {
+        const splits: TipSplitEvent[] = [];
+        for (const log of logs) {
+          try {
+            splits.push(decodeTipSplitLog(log));
+          } catch (error) {
+            onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
+        if (splits.length > 0) onSplits(splits);
+      };
+      const common = { address, abi: blockbeatAbi, eventName: 'TipSplit', args: { sessionId }, strict: true, onLogs, onError } as const;
+      if (mode === 'ws' && ws) return ws.watchContractEvent(common);
+      return http.watchContractEvent({ ...common, poll: true, pollingInterval: pollingIntervalMs ?? 400 });
     },
 
     watchHits({ sessionId, mode, pollingIntervalMs, onHits, onError }: HitWatchArgs): () => void {

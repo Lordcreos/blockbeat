@@ -23,6 +23,16 @@ describe('Hud tips (W12)', () => {
   });
 });
 
+describe('Hud without tips (W21b: the stage shows them in the tips panel)', () => {
+  afterEach(cleanup);
+
+  it('leaves the Tips stat out when no pool is given', () => {
+    render(<Hud {...base} />);
+    expect(screen.queryByTestId('hud-tips')).toBeNull();
+    expect(screen.getByTestId('hud-latency')).toBeTruthy();
+  });
+});
+
 describe('Hud live notes (W13)', () => {
   afterEach(cleanup);
 

@@ -48,6 +48,8 @@ export interface TipEvent {
   blockNumber: bigint;
   txHash: Hash;
   logIndex: number;
+  /** W21b: the W21a split of this tip (TipSplit event; the simulator computes it). Absent before W21a. */
+  split?: { hostWei: bigint; poolWei: bigint };
 }
 
 export interface EventFeedState {
@@ -65,6 +67,10 @@ export interface EventFeedState {
   tipPoolWei: bigint;
   /** W12: tips so far: the pool at load over the fixed app tip, plus every Tipped event seen since. */
   tipCount: number;
+  /** W21b: raised by the session: pool + host share at load, plus every Tipped amount since. */
+  raisedWei: bigint;
+  /** W21b: Tipped events seen live, newest last (at most LIVE_TIPS_LIMIT); older tips come from /api/tip-note. */
+  tips: readonly TipEvent[];
   /**
    * W13: every Hit the feed knows for the session (backfill + live), sorted by (blockNumber,
    * logIndex). The live, decaying layer is derived from it; `pattern` above is the RECORDED
@@ -125,8 +131,11 @@ export interface TipReceipt {
 }
 
 export interface TipSender {
-  /** Sends a fixed tip to the session and resolves on the receipt. Rejects on send, revert or timeout. */
-  send(sessionId: bigint): Promise<TipReceipt>;
+  /**
+   * Sends a tip to the session and resolves on the receipt. Rejects on send, revert or timeout.
+   * W21b: `amountWei` is the amount the tipper picked (defaults to the app's fixed tip).
+   */
+  send(sessionId: bigint, amountWei?: bigint): Promise<TipReceipt>;
   /** Number of tips in flight. */
   pending(): number;
 }

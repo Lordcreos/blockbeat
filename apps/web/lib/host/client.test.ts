@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Hash } from 'viem';
 import { HOST_HEADER } from './auth';
-import { HOST_SECRET_STORAGE_KEY, HostClientError, clearHostSecret, finalizeSessionRequest, loadHostSecret, saveHostSecret, startSessionRequest } from './client';
+import { HOST_SECRET_STORAGE_KEY, HostClientError, claimHostRequest, clearHostSecret, finalizeSessionRequest, loadHostSecret, saveHostSecret, startSessionRequest } from './client';
 
 const TX = `0x${'ef'.repeat(32)}` as Hash;
 
@@ -70,6 +70,17 @@ describe('session requests', () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('/api/session/finalize');
     expect(JSON.parse(String(init.body))).toEqual({ sessionId: '7' });
+  });
+
+  it('W21b: POSTs /api/session/claim-host and parses the amount; a malformed answer is BAD_RESPONSE', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ sessionId: '7', amountWei: '4000', txHash: TX }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await claimHostRequest('top', 7n)).toEqual({ sessionId: 7n, amountWei: 4000n, txHash: TX });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/session/claim-host');
+    expect(new Headers(init.headers).get(HOST_HEADER)).toBe('top');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ sessionId: '7', amountWei: 'lots', txHash: null }), { status: 200 })));
+    await expect(claimHostRequest('top', 7n)).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
   });
 
   it('throws a HostClientError carrying the API code and message', async () => {

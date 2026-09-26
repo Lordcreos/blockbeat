@@ -7,7 +7,7 @@ import { MAX_AUTH_FAILURES_PER_MINUTE } from '@/lib/host/http';
 const TX = `0x${'cd'.repeat(32)}` as Hash;
 const startSession = vi.fn<HostService['startSession']>();
 const finalize = vi.fn<HostService['finalize']>();
-vi.mock('@/lib/host/runtime', () => ({ getHostService: (): HostService => ({ startSession, finalize }) }));
+vi.mock('@/lib/host/runtime', () => ({ getHostService: (): HostService => ({ startSession, finalize, claimHost: vi.fn() }) }));
 
 const { POST } = await import('./route');
 

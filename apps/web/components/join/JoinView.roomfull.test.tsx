@@ -57,17 +57,17 @@ describe('JoinView when the room is full (W19)', () => {
     expect(screen.queryByTestId('pads')).toBeNull();
   });
 
-  it('with no MON on this phone: just watching, no tip button', () => {
+  it('offers no tip button on the phone and points to the Tips code on the big screen (W21b)', () => {
     balance = withBalance('0');
     render(<JoinView sessionId={7n} />);
     expect(screen.queryByRole('button', { name: /tip the room/i })).toBeNull();
-    expect(screen.getByText(/you are watching/i)).toBeTruthy();
+    expect(screen.getByText(/scan the tips code on the big screen/i)).toBeTruthy();
   });
 
-  it('with MON left from before: Tip the room still works', () => {
+  it('still reads the balance while the room is full, with no tip button even with MON left', () => {
     balance = withBalance('0.2');
     render(<JoinView sessionId={7n} />);
     expect(balanceEnabled).toHaveBeenCalledWith(true);
-    expect(screen.getByRole('button', { name: /tip the room/i }).hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByRole('button', { name: /tip the room/i })).toBeNull();
   });
 });

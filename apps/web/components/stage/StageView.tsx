@@ -6,12 +6,15 @@ import { runtimeAddress, runtimeChain } from '@/lib/chain/clients';
 import { explorerTokenLink, explorerTxLink } from '@/lib/chain/explorer';
 import { HostClientError, clearHostSecret, finalizeSessionRequest, loadHostSecret, saveHostSecret, startSessionRequest, useHasHostSecret } from '@/lib/host/client';
 import { useAgentDj } from '@/lib/host/useAgentDj';
+import { crowdEnabled } from '@/lib/crowd/flag';
 import { useCrowd } from '@/lib/crowd/useCrowd';
 import type { CrowdMode } from '@/lib/crowd/client';
 import { decayConfig, liveView, sameSteps } from '@/lib/decay';
 import { useBlockClock, useEventFeed } from '@/lib/hooks';
-import { QrCode } from '@/components/QrCode';
-import { shortUrl } from '@/components/format';
+import { formatMon } from '@/lib/funding';
+import { markMockFinalized, useHostTips } from '@/lib/tips/claims';
+import { useTipNotes } from '@/lib/tips/hooks';
+import { mergeTips } from '@/lib/tips/tipList';
 import { useOrigin } from '@/components/useOrigin';
 import { useReducedMotion } from '@/components/useReducedMotion';
 import { AudioControls } from './AudioControls';
@@ -23,6 +26,9 @@ import { DjPanel } from './DjPanel';
 import { HostControls } from './HostControls';
 import { Hud } from './Hud';
 import { Legend } from './Legend';
+import { StageQrs } from './StageQrs';
+import { TipsPanel } from './TipsPanel';
+import { useJoinQrVisible } from './useJoinQrVisible';
 import { agentLiveCells, cellFades, cellKey, trackCellCounts } from './grid-model';
 import { linkStatus } from './link-status';
 import { stageWarnings } from './join-url';
@@ -38,6 +44,7 @@ function hitKey(hit: HitEvent): string {
 }
 
 const JOIN_BASE_URL = process.env.NEXT_PUBLIC_JOIN_BASE_URL?.trim().replace(/\/+$/, '') ?? '';
+const TIP_TOTALS = { tipTotals: true } as const;
 
 interface StageViewProps {
   sessionId: bigint;
@@ -47,7 +54,8 @@ interface StageViewProps {
 
 export function StageView({ sessionId, hostRequested = false }: StageViewProps) {
   // W13: the feed keeps the Hit history of the live window; the live layer is derived from it.
-  const feed = useEventFeed(sessionId);
+  // W21b: the stage reads the chain's tip totals (totalTipsOf, TipSplit) for Raised by this song.
+  const feed = useEventFeed(sessionId, 'window', TIP_TOTALS);
   const clock = useBlockClock(feed.session?.startBlock ?? null);
   const origin = useOrigin();
   const router = useRouter();
@@ -82,7 +90,9 @@ export function StageView({ sessionId, hostRequested = false }: StageViewProps) 
     if (djUnauthorized) clearHostSecret();
   }, [djUnauthorized]);
   // W19: simulated players, a child of the laptop's web server like the DJ; polled only with a secret.
-  const crowd = useCrowd(hasSecret);
+  // The crowd simulator stays off unless NEXT_PUBLIC_CROWD_ENABLED=1 (no buttons, no panel, no polling).
+  const crowdOn = crowdEnabled();
+  const crowd = useCrowd(hasSecret && crowdOn);
   // Headed phone windows open on the machine that runs the server: offer them only when the stage is opened there.
   const crowdVisibleAvailable = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin);
   // W15: the host bar shows for the presenter only (a stored secret or ?host=1); the projector stays clean.
@@ -106,6 +116,12 @@ export function StageView({ sessionId, hostRequested = false }: StageViewProps) 
     setSeenTipKey(incomingTipKey);
     setTipFlash((n) => n + 1);
   }
+  // W21b: the latest tips (live Tipped events merged with the notes the tip page posted), the
+  // join code's visibility (host bar, per tab) and the host share of tips (pulled by claimHost).
+  const notes = useTipNotes(sessionId);
+  const tipLines = useMemo(() => mergeTips(feed.tips, notes.notes, 3), [feed.tips, notes.notes]);
+  const [joinQrVisible, setJoinQrVisible] = useJoinQrVisible();
+  const hostTips = useHostTips(sessionId, showHostBar, feed.tips.length);
   const incomingKey = feed.lastHit ? hitKey(feed.lastHit) : null;
   if (feed.lastHit && incomingKey !== seenHitKey) {
     const hit = feed.lastHit;
@@ -119,9 +135,10 @@ export function StageView({ sessionId, hostRequested = false }: StageViewProps) 
   const { fade: fades, ghost: ghosts } = useMemo(() => cellFades(live, DECAY.lifetimeBars, reducedMotion), [live, reducedMotion]);
 
   const chainName = runtimeChain().name;
-  const qrSize = 232; // W12: 264 → 232 so the rail fits 1080 px with the Tips stat and the DJ panel
+  const qrSize = 168; // W21b: two codes side by side (play, tip) in the 500 px rail
   const joinBase = JOIN_BASE_URL || origin;
   const joinUrl = joinBase ? `${joinBase}/join/${sessionId}` : '';
+  const tipUrl = joinBase ? `${joinBase}/tip/${sessionId}` : '';
   const finalized = (feed.session?.finalized ?? false) || hasFinalized;
   const knownTokenId = mintedTokenId ?? (feed.session?.finalized && feed.session.tokenId > 0n ? feed.session.tokenId : null);
   const uiLocked = !audioStarted || finalizeResult !== null;
@@ -171,8 +188,13 @@ export function StageView({ sessionId, hostRequested = false }: StageViewProps) 
       const result = await finalizeSessionRequest(loadHostSecret(), sessionId);
       setHasFinalized(true);
       setMintedTokenId(result.tokenId);
+      // W21b: mock mode has no chain; the simulator (and the phones, over the bus) learn it here.
+      if (result.txHash === null) markMockFinalized(sessionId, result.tokenId);
       setFinalizeResult({
         ...result,
+        // Mock mode: the host route cannot count players; the stage's feed can.
+        ...(result.txHash === null ? { contributors: BigInt(feed.uniquePlayers) } : {}),
+        raisedWei: feed.raisedWei,
         explorerTokenUrl: result.txHash ? explorerTokenLink(runtimeAddress(), result.tokenId) : null,
         explorerTxUrl: result.txHash ? explorerTxLink(result.txHash) : null,
       });
@@ -181,6 +203,16 @@ export function StageView({ sessionId, hostRequested = false }: StageViewProps) 
       setHostStatus(hostFailure('End session and mint', err));
     } finally {
       setHostBusy(false);
+    }
+  };
+
+  const claimHostTips = async () => {
+    setHostStatus('Claiming the host tips…');
+    try {
+      const { amountWei } = await hostTips.claim(loadHostSecret());
+      setHostStatus(`Host tips claimed: ${formatMon(amountWei)} MON`);
+    } catch (err) {
+      setHostStatus(hostFailure('Claim host tips', err));
     }
   };
 
@@ -232,14 +264,23 @@ export function StageView({ sessionId, hostRequested = false }: StageViewProps) 
           djBusy={dj.busy}
           onToggleDj={() => void toggleDj()}
           inert={uiLocked}
-          crowd={{
-            running: crowd.status?.running ?? false,
-            stopping: crowd.status?.stopping ?? false,
-            busy: crowd.busy,
-            visibleAvailable: crowdVisibleAvailable,
-            onAdd: (mode) => void addCrowd(mode),
-            onStop: () => void stopCrowd(),
-          }}
+          joinQrVisible={joinQrVisible}
+          onToggleJoinQr={() => setJoinQrVisible(!joinQrVisible)}
+          hostClaimableWei={hostTips.claimableWei}
+          onClaimHost={() => void claimHostTips()}
+          claimBusy={hostTips.busy}
+          {...(crowdOn
+            ? {
+                crowd: {
+                  running: crowd.status?.running ?? false,
+                  stopping: crowd.status?.stopping ?? false,
+                  busy: crowd.busy,
+                  visibleAvailable: crowdVisibleAvailable,
+                  onAdd: (mode: CrowdMode) => void addCrowd(mode),
+                  onStop: () => void stopCrowd(),
+                },
+              }
+            : {})}
         />
       )}
       <section inert={uiLocked} className="relative z-[1] flex min-w-0 flex-col gap-5 px-5 pb-6 pt-6 lg:px-10 lg:pb-8 lg:pt-7" aria-label="Sequencer">
@@ -312,33 +353,8 @@ export function StageView({ sessionId, hostRequested = false }: StageViewProps) 
         style={{ background: 'color-mix(in srgb, var(--surface-1) 88%, transparent)', borderLeft: '1px solid var(--line)', backdropFilter: 'blur(10px)' }}
         aria-label="Join and statistics"
       >
-        <div className="flex flex-col items-center gap-2">
-          <h2 data-testid="scan-cta" style={{ fontSize: 'var(--text-hud)', fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>
-            Scan to play
-          </h2>
-          <div
-            data-testid="qr-join"
-            className="rounded-[20px] p-3"
-            style={{ background: '#fff', boxShadow: '0 0 0 6px rgba(255,255,255,0.06), 0 30px 60px -20px rgba(0,0,0,0.9)' }}
-          >
-            <QrCode value={joinUrl} size={qrSize} label={`QR code to join session ${sessionId.toString()}`} />
-          </div>
-          <p
-            data-testid="short-url"
-            className="num max-w-full text-center"
-            style={{
-              // W12: a quick-tunnel host is long; keep it on one line so the rail fits 1080 px.
-              fontSize: joinUrl && shortUrl(joinUrl).length > 26 ? 'var(--text-md)' : 'var(--text-hud)',
-              fontWeight: 600,
-              letterSpacing: '-0.01em',
-              fontFamily: 'var(--font-mono)',
-              overflowWrap: 'anywhere',
-            }}
-          >
-            {joinUrl ? shortUrl(joinUrl) : `/join/${sessionId.toString()}`}
-          </p>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-muted)' }}>You get an instrument. Every tap is a note on chain.</p>
-        </div>
+        <StageQrs sessionId={sessionId} joinUrl={joinUrl} tipUrl={tipUrl} joinVisible={joinQrVisible} size={qrSize} />
+        <TipsPanel raisedWei={feed.raisedWei} lines={tipLines} flash={tipFlash} />
 
         <Hud
           currentBlock={clock.currentBlock}
@@ -348,9 +364,6 @@ export function StageView({ sessionId, hostRequested = false }: StageViewProps) 
           avgLatencyMs={feed.avgLatencyMs}
           uniquePlayers={feed.uniquePlayers}
           measuredBlockMs={clock.measuredBlockMs}
-          tipPoolWei={feed.tipPoolWei}
-          tipCount={feed.tipCount}
-          tipFlash={tipFlash}
         />
 
         <div className="flex flex-col gap-3">
@@ -362,7 +375,7 @@ export function StageView({ sessionId, hostRequested = false }: StageViewProps) 
             {/* The room sees the DJ at work; W15 moved its controls to the host bar. */}
             <DjPanel status={dj.status} error={djError} />
             {/* W19: host only; the projector never shows the simulator's controls or numbers. */}
-            {showHostBar && <CrowdPanel status={crowd.status} error={crowdError} />}
+            {showHostBar && crowdOn && <CrowdPanel status={crowd.status} error={crowdError} />}
           </div>
         </div>
       </aside>

@@ -29,11 +29,13 @@ let balance: UseBalanceResult;
 const send = vi.fn<(track: number, note: number) => Promise<HitReceipt>>();
 let feedHits: HitEvent[] = [];
 
+/** W21b: the finalized phone's tip share (ClaimShare). */
+const tipShareWei: bigint | null = null;
+vi.mock('@/lib/tips/claims', () => ({ useTipShare: () => ({ claimableWei: tipShareWei, state: { kind: 'idle' }, claim: vi.fn() }) }));
 vi.mock('@/lib/hooks', () => ({
   useBurner: () => ({ address: ME, restored: false }),
   useDrip: () => ({ drip: { txHash: null, track: 2, alreadyFunded: false }, loading: false, error: null, retryInSeconds: null }),
   useHitSender: () => ({ send, pending: 0 }),
-  useTip: () => ({ tip: vi.fn(), pending: false, readyAt: () => null }),
   useBalance: () => balance,
   useTopUp: () => ({ phase: null, error: null, topUpsLeft: null, topUp: vi.fn() }),
   useEventFeed: () => ({
@@ -380,7 +382,7 @@ describe('first-visit tour', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('the replay button is a visible, labelled button next to Tip the room (not a bare icon)', () => {
+  it('the replay button is a visible, labelled button in the footer (not a bare icon)', () => {
     render(<JoinView sessionId={7n} />);
     const help = screen.getByRole('button', { name: 'How to play' });
     expect(help.textContent).toMatch(/How to play/);

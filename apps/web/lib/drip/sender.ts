@@ -82,11 +82,11 @@ export function createChainDripSender({
   const headOrNull = (): Promise<bigint | null> => (pacing ? pacing.getBlockNumber().catch(() => null) : Promise.resolve(null));
 
   /** Below the reserve: wait until RESERVE_PACING_BLOCKS heads have passed since the previous send. */
-  async function paceIfBelowReserve(): Promise<bigint | null> {
+  async function paceIfBelowReserve(amount: bigint): Promise<bigint | null> {
     if (!pacing) return null;
     // An unreadable balance is treated as below the reserve: pacing is slower, never wrong.
     const balance = await pacing.getBalance().catch(() => 0n);
-    paced = isBelowReserve(balance, value);
+    paced = isBelowReserve(balance, amount);
     let head = await headOrNull();
     if (!paced || lastSendAt === null) return head;
     const deadline = lastSendAt + DRIP_PACING_MAX_WAIT_MS;
@@ -103,16 +103,16 @@ export function createChainDripSender({
     return head;
   }
 
-  const send = (to: Address): Promise<Hash> => {
+  const send = (to: Address, amountWei: bigint = value): Promise<Hash> => {
     queued += 1;
     return sends(async () => {
       try {
-        const head = await paceIfBelowReserve();
+        const head = await paceIfBelowReserve(amountWei);
         // W16: fixed fees and chainId, so viem sends with one nonce read and one raw send (no
         // eth_fillTransaction, eth_getBlock or eth_maxPriorityFeePerGas per drip).
         const hash = await wallet.sendTransaction({
           to,
-          value,
+          value: amountWei,
           gas: DRIP_GAS_LIMIT,
           maxFeePerGas: HIT_MAX_FEE_PER_GAS,
           maxPriorityFeePerGas: HIT_MAX_PRIORITY_FEE_PER_GAS,

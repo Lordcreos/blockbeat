@@ -5,14 +5,15 @@
  * Blockbeat address (env override or the shared table for NEXT_PUBLIC_CHAIN_ID) is zero
  * (see lib/chain/clients.ts).
  */
-import type { Address } from 'viem';
+import { isAddress, parseEventLogs, type Address, type Hash } from 'viem';
 import { BLOCK_MS, HIT_GAS_LIMIT_FIRST, RESERVE_WINDOW_BLOCKS, blockbeatAbi } from '@blockbeat/shared';
 import { createBlockClock, type BlockClockController, type HeadSource } from './blockClock';
-import { loadOrCreateBurner, type BurnerAccount, type StorageLike } from './burner';
+import { TIPPER_BURNER_STORAGE_KEY, loadOrCreateBurner, type BurnerAccount, type StorageLike } from './burner';
 import {
   createBurnerWalletClient,
   createChainEventSource,
   createChainHeadSource,
+  createChainClaimWriter,
   createChainHitWriter,
   createChainTipWriter,
   createHttpClient,
@@ -29,6 +30,7 @@ import { decayConfig } from './decay';
 import { createHitGasPolicy, type HitGasPolicy } from './hitGas';
 import { createHitSender, type HitWriter } from './hitSender';
 import { revertErrorName } from './revert';
+import { createBroadcastBus } from './mock/bus';
 import { createSimulator, type Simulator } from './mock/simulator';
 import { createBurnerActivity, createTipSender, DEFAULT_TIP_TIMEOUT_MS, tipReadyAt as reserveReadyAt, type TipReceiptSource, type TipWriter } from './tipSender';
 import type { HitSender, TipSender } from './types';
@@ -44,6 +46,25 @@ export interface FeedOptions {
    * later acquirer's player is ignored (the strip filters by player itself, so nothing breaks).
    */
   player?: Address;
+  /** W21b: read totalTipsOf and watch TipSplit (the stage). Applies when the feed is created. */
+  tipTotals?: boolean;
+}
+
+/** W21b: a player's claim of their tip share; txHash is null in mock mode. */
+export interface ClaimResult {
+  txHash: Hash | null;
+  amountWei: bigint;
+}
+
+export class ClaimError extends Error {
+  constructor(
+    message: string,
+    readonly txHash: Hash | null = null,
+  ) {
+    super(message);
+    this.name = 'ClaimError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
 }
 
 export interface AcquiredFeed {
@@ -81,6 +102,8 @@ export interface BlockbeatRuntime {
   simulator: Simulator | null;
   clock: BlockClockController;
   burner(): BurnerAccount;
+  /** W21b: the tip page's burner (its own storage key, funded by the tipper drip); every tip is sent from it. */
+  tipper(): BurnerAccount;
   acquireFeed(sessionId: bigint, options?: FeedOptions): AcquiredFeed;
   acquireHitSender(sessionId: bigint): AcquiredHitSender;
   acquireTipSender(sessionId: bigint): AcquiredTipSender;
@@ -98,21 +121,36 @@ export interface BlockbeatRuntime {
   /** W12: a drip or top-up answered. Mock mode credits the simulator (no chain); a no-op on chain. */
   creditDrip(address: Address, amountWei: bigint): void;
   /**
-   * W12: when a tip from the burner can go out under Monad's reserve rule (1.5 s after its
-   * last transaction), or null when it can go now. Always null in mock mode.
+   * W12: when a tip from the tipper burner can go out under Monad's reserve rule (1.5 s after
+   * its last transaction), or null when it can go now. Always null in mock mode.
    */
   tipReadyAt(): number | null;
   /** Gas limit the next hit in this session would carry (first-hit tier until a confirmed hit, keyed by chain). */
   hitGasFor(sessionId: bigint): bigint;
+  /** W21b: `claimableOf(sessionId, address)`: what a player's claim would pay now (one eth_call). */
+  readClaimable(sessionId: bigint, address: Address): Promise<bigint>;
+  /** W21b: the player burner claims its tip share (after finalize) and resolves on the receipt. */
+  claimShare(sessionId: bigint): Promise<ClaimResult>;
+  /** W21b: `hostClaimableOf(sessionId)`: the host share not pulled yet (one eth_call). */
+  readHostClaimable(sessionId: bigint): Promise<bigint>;
+  /**
+   * W21b, mock mode only (the host routes answer without a chain): mark the session finalized
+   * in the simulator (the other tabs hear it) and pull the host share. No-ops on chain.
+   */
+  mockFinalize(sessionId: bigint, tokenId: bigint): void;
+  mockClaimHost(sessionId: bigint): bigint | null;
 }
 
+export const CLAIM_RECEIPT_TIMEOUT_MS = 15_000;
+
 export type RuntimeOptions =
-  | { mode: 'mock'; simulator?: Simulator; burner?: BurnerAccount }
+  | { mode: 'mock'; simulator?: Simulator; burner?: BurnerAccount; tipper?: BurnerAccount }
   | {
       mode: 'chain';
       address: Address;
       rpc?: RpcUrls;
       burner?: BurnerAccount;
+      tipper?: BurnerAccount;
       balances?: BalanceSource;
       /** Defaults to runtimeChainId(); the gas-tier flags are keyed by it (review M3). */
       chainId?: number;
@@ -151,6 +189,11 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
     if (!burnerAccount) burnerAccount = loadOrCreateBurner();
     return burnerAccount;
   };
+  let tipperAccount: BurnerAccount | null = options.tipper ?? null;
+  const tipper = (): BurnerAccount => {
+    tipperAccount ??= loadOrCreateBurner({ storageKey: TIPPER_BURNER_STORAGE_KEY });
+    return tipperAccount;
+  };
 
   let simulator: Simulator | null = null;
   let headSource: HeadSource;
@@ -160,6 +203,9 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
   let receipts: TipReceiptSource;
   let balances: BalanceSource | null = null;
   let gasPolicyFor: (account: BurnerAccount) => HitGasPolicy | null = () => null;
+  let readClaimable: (sessionId: bigint, address: Address) => Promise<bigint>;
+  let readHostClaimable: (sessionId: bigint) => Promise<bigint>;
+  let claimShare: (sessionId: bigint) => Promise<ClaimResult>;
 
   if (options.mode === 'mock') {
     simulator = options.simulator ?? createSimulator();
@@ -170,6 +216,9 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
     writerFor = (account) => sim.hitWriterFor(account.address);
     tipWriterFor = (account) => sim.tipWriterFor(account.address);
     receipts = sim.receipts;
+    readClaimable = async (sessionId, address) => sim.claimableOf(sessionId, address);
+    readHostClaimable = async (sessionId) => sim.hostClaimableOf(sessionId);
+    claimShare = async (sessionId) => ({ txHash: null, amountWei: sim.claim(sessionId, burner().address) });
   } else {
     const rpc = options.rpc ?? getRpcUrls();
     const http = createHttpClient(rpc.http);
@@ -199,6 +248,19 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
     tipWriterFor = (account) =>
       createChainTipWriter({ wallet: createBurnerWalletClient(account.account, rpc.http), address: options.address });
     const address = options.address;
+    readClaimable = (sessionId, player) => http.readContract({ address, abi: blockbeatAbi, functionName: 'claimableOf', args: [sessionId, player] });
+    readHostClaimable = (sessionId) => http.readContract({ address, abi: blockbeatAbi, functionName: 'hostClaimableOf', args: [sessionId] });
+    claimShare = async (sessionId) => {
+      const account = burner();
+      const txHash = await createChainClaimWriter({ wallet: createBurnerWalletClient(account.account, rpc.http), address })(sessionId);
+      const receipt = await http.waitForTransactionReceipt({ hash: txHash, timeout: CLAIM_RECEIPT_TIMEOUT_MS });
+      if (receipt.status !== 'success') throw new ClaimError('the claim reverted', txHash);
+      const own = receipt.logs.filter((log) => log.address.toLowerCase() === address.toLowerCase());
+      const [claimed] = parseEventLogs({ abi: blockbeatAbi, eventName: 'Claimed', logs: own, strict: true });
+      // Review (TS HIGH): a mined claim without its Claimed log is an error, never "claimed 0".
+      if (!claimed) throw new ClaimError(`the claim mined (${txHash}) but no Claimed log was emitted`, txHash);
+      return { txHash, amountWei: claimed.args.amount };
+    };
     receipts = {
       async waitForReceipt(hash) {
         // Shorter than the sender's own timer so a slow receipt always surfaces as TIMEOUT there.
@@ -213,7 +275,7 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
             functionName: 'tip',
             args: [sessionId],
             value: valueWei,
-            account: burner().address,
+            account: tipper().address,
           });
           return 'simulation succeeded; the revert was transient';
         } catch (error) {
@@ -234,7 +296,8 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
   const tipSenders = new Map<bigint, TipEntry>();
   let writer: HitWriter | null = null;
   let tipWriter: TipWriter | null = null;
-  // Hits and tips from the one burner share the Monad reserve window (W11): tips wait it out.
+  // W11: back-to-back value transfers from one sub-10-MON burner revert; the tipper's tips wait it out.
+  // W21b: only tips come from the tipper burner, so only they mark it.
   const activity = createBurnerActivity();
 
   function acquireFeed(sessionId: bigint, feedOptions: FeedOptions = {}): AcquiredFeed {
@@ -247,6 +310,7 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
         history: feedOptions.history ?? 'window',
         ...(feedOptions.player ? { historyPlayer: feedOptions.player } : {}),
         lifetimeBars: decay.lifetimeBars,
+        ...(feedOptions.tipTotals ? { tipTotals: true } : {}),
         // Phones spread their first history read over 1.5 s; the one stage reads at once.
         initialSyncDelayMs: feedOptions.history === 'full' ? 0 : Math.floor(Math.random() * 1_500),
       });
@@ -274,13 +338,8 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
   function acquireHitSender(sessionId: bigint): AcquiredHitSender {
     let entry = senders.get(sessionId);
     if (!entry) {
-      if (!writer) {
-        const base = writerFor(burner());
-        writer = (args, hooks) => {
-          activity.markSend(Date.now());
-          return base(args, hooks);
-        };
-      }
+      // W21b: hits come from the player burner; tips from the tipper, so hits no longer mark the tip gate.
+      writer ??= writerFor(burner());
       // The sender resolves hits from this session's feed, so it holds the feed while held itself.
       // Only a phone sends hits: its feed reads back its own notes of the live window (W13).
       const { feed, release } = acquireFeed(sessionId, { player: burner().address });
@@ -310,7 +369,7 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
   function acquireTipSender(sessionId: bigint): AcquiredTipSender {
     let entry = tipSenders.get(sessionId);
     if (!entry) {
-      if (!tipWriter) tipWriter = tipWriterFor(burner());
+      tipWriter ??= tipWriterFor(tipper());
       // The simulator has no reserve rule, so mock tips go out at once as before.
       entry = { sender: createTipSender({ writer: tipWriter, receipts, ...(options.mode === 'mock' ? {} : { activity }) }), holders: 0 };
       tipSenders.set(sessionId, entry);
@@ -369,6 +428,7 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
     simulator,
     clock,
     burner,
+    tipper,
     acquireFeed,
     acquireHitSender,
     acquireTipSender,
@@ -377,14 +437,32 @@ export function createRuntime(options: RuntimeOptions): BlockbeatRuntime {
     readBalance,
     creditDrip,
     tipReadyAt,
+    readClaimable,
+    claimShare,
+    readHostClaimable,
+    mockFinalize(sessionId, tokenId) {
+      simulator?.finalize(sessionId, tokenId);
+    },
+    mockClaimHost(sessionId) {
+      return simulator ? simulator.claimHost(sessionId) : null;
+    },
   };
 }
 
 let runtime: BlockbeatRuntime | null = null;
 
+/** The resident DJ's public address (NEXT_PUBLIC_AGENT_ADDRESS), or null when unset or malformed. */
+export function agentAddress(): Address | null {
+  const raw = process.env.NEXT_PUBLIC_AGENT_ADDRESS?.trim();
+  return raw && isAddress(raw) ? raw : null;
+}
+
 /** Browser-only singleton. Call from effects and event handlers, never during render on the server. */
 export function getRuntime(): BlockbeatRuntime {
   if (runtime) return runtime;
-  runtime = isMockMode() ? createRuntime({ mode: 'mock' }) : createRuntime({ mode: 'chain', address: runtimeAddress() });
+  // W21b: in the browser, mock simulators of one origin share hits and tips (lib/mock/bus.ts).
+  runtime = isMockMode()
+    ? createRuntime({ mode: 'mock', simulator: createSimulator({ bus: createBroadcastBus(), agent: agentAddress() }) })
+    : createRuntime({ mode: 'chain', address: runtimeAddress() });
   return runtime;
 }

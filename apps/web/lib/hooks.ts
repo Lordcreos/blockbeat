@@ -10,9 +10,8 @@ import type { BurnerAccount } from './burner';
 import type { HistoryMode } from './eventFeed';
 import { fundsLevel, notesLeft, type FundsLevel } from './funding';
 import { HitError } from './hitSender';
-import { FUNDS_SETTLE_MS, getRuntime, type AcquiredHitSender, type AcquiredTipSender } from './runtime';
-import { TipError } from './tipSender';
-import type { BlockClockState, BurnerWallet, DripResult, EventFeedState, HitEvent, HitReceipt, TipEvent, TipReceipt } from './types';
+import { FUNDS_SETTLE_MS, getRuntime, type AcquiredHitSender } from './runtime';
+import type { BlockClockState, BurnerWallet, DripResult, EventFeedState, HitEvent, HitReceipt, TipEvent } from './types';
 
 export function useBlockClock(startBlock: bigint | null): BlockClockState {
   const [state, setState] = useState<BlockClockState>(() => ({
@@ -51,6 +50,8 @@ const IDLE_FEED: EventFeedState = {
   decodeErrors: 0,
   tipPoolWei: 0n,
   tipCount: 0,
+  raisedWei: 0n,
+  tips: [],
   hits: [],
   historyReady: false,
   historyFrom: null,
@@ -70,12 +71,15 @@ interface LiveFeed {
 export function useEventFeed(
   sessionId: bigint | null,
   history: HistoryMode = 'window',
+  /** W21b: the stage and the tip page read the chain's tip totals (totalTipsOf, TipSplit). */
+  options: { tipTotals?: boolean } = {},
 ): EventFeedState & { lastHit: HitEvent | null; lastTip: TipEvent | null; error: string | null } {
   const [live, setLive] = useState<LiveFeed | null>(null);
+  const tipTotals = options.tipTotals ?? false;
 
   useEffect(() => {
     if (sessionId === null) return;
-    const { feed, release } = getRuntime().acquireFeed(sessionId, { history });
+    const { feed, release } = getRuntime().acquireFeed(sessionId, { history, ...(tipTotals ? { tipTotals } : {}) });
     let cancelled = false;
     const patch = (p: Partial<Omit<LiveFeed, 'sessionId'>>): void => {
       if (cancelled) return; // a late result for a previous session id must not clobber the current one
@@ -98,7 +102,7 @@ export function useEventFeed(
       offTip();
       release();
     };
-  }, [sessionId, history]);
+  }, [sessionId, history, tipTotals]);
 
   if (sessionId === null || live === null || live.sessionId !== sessionId) {
     return { ...IDLE_FEED, lastHit: null, lastTip: null, error: null };
@@ -456,44 +460,4 @@ export function useHitSender(sessionId: bigint | null): {
   );
 
   return { send, pending };
-}
-
-export function useTip(sessionId: bigint | null): {
-  tip: () => Promise<TipReceipt>;
-  pending: boolean;
-  /** W12: when a tip can go out under the reserve rule (for the countdown); null when it can go now. */
-  readyAt: () => number | null;
-} {
-  const [pending, setPending] = useState(false);
-  const held = useRef<AcquiredTipSender | null>(null);
-
-  useEffect(() => {
-    if (sessionId === null) return;
-    const acquired = getRuntime().acquireTipSender(sessionId);
-    held.current = acquired;
-    return () => {
-      if (held.current === acquired) held.current = null;
-      acquired.release();
-    };
-  }, [sessionId]);
-
-  const tip = useCallback(async (): Promise<TipReceipt> => {
-    if (sessionId === null) throw new TipError('INVALID_ARGS', 'no session selected');
-    // Normally the effect above holds the sender; before it runs, hold one for this call only.
-    const transient = held.current ? null : getRuntime().acquireTipSender(sessionId);
-    const sender = (held.current ?? transient)?.sender;
-    if (!sender) throw new TipError('SEND_FAILED', 'tip sender unavailable');
-    const p = sender.send(sessionId);
-    setPending(sender.pending() > 0);
-    try {
-      return await p;
-    } finally {
-      setPending(sender.pending() > 0);
-      transient?.release();
-    }
-  }, [sessionId]);
-
-  const readyAt = useCallback((): number | null => getRuntime().tipReadyAt(), []);
-
-  return { tip, pending, readyAt };
 }

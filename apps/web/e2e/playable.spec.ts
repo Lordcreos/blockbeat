@@ -15,7 +15,11 @@ async function shot(page: Page, name: string): Promise<void> {
 async function open(page: Page): Promise<void> {
   await page.setViewportSize({ width: 390, height: 844 });
   // A returning player: the first-visit tour has its own spec (tour.spec.ts).
-  await page.addInitScript(() => window.localStorage.setItem('blockbeat:phone:tour', 'done'));
+  await page.addInitScript(() => {
+    window.localStorage.setItem('blockbeat:phone:tour', 'done');
+    // 39228fe made Tap now the default; these tests aim (the Tap now test switches back itself).
+    window.localStorage.setItem('blockbeat:phone:mode', 'aim');
+  });
   await page.goto('/join/1');
   await expect(page.getByRole('button', { name: /^Pad 1, / })).toBeEnabled();
   // The block clock locks on the first simulator head (300 ms).

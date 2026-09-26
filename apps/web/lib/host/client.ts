@@ -143,6 +143,24 @@ export async function finalizeSessionRequest(secret: string | null, sessionId: b
   return { sessionId: id, tokenId, contributors, txHash };
 }
 
+export interface ClaimHostResponse {
+  sessionId: bigint;
+  amountWei: bigint;
+  txHash: Hash | null;
+}
+
+/** W21b: the host pulls its 20 % of the session's tips (claimHost, signed by the server's host key). */
+export async function claimHostRequest(secret: string | null, sessionId: bigint): Promise<ClaimHostResponse> {
+  const body = await post('/api/session/claim-host', secret, { sessionId: sessionId.toString() });
+  const id = bigintField(body, 'sessionId');
+  const amountWei = bigintField(body, 'amountWei');
+  const txHash = hashField(body);
+  if (id === null || amountWei === null || txHash === undefined) {
+    throw new HostClientError('BAD_RESPONSE', 'session/claim-host returned an unexpected body', 200);
+  }
+  return { sessionId: id, amountWei, txHash };
+}
+
 export type { AgentStatus };
 
 const isNullableNumber = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isFinite(v));

@@ -11,7 +11,7 @@ vi.mock('./runtime', async (importOriginal) => {
   return { ...mod, getRuntime: () => runtime };
 });
 
-const { MAX_DRIP_ATTEMPTS, useBalance, useBlockClock, useBurner, useDrip, useEventFeed, useHitSender, useTip, useTopUp } = await import('./hooks');
+const { MAX_DRIP_ATTEMPTS, useBalance, useBlockClock, useBurner, useDrip, useEventFeed, useHitSender, useTopUp } = await import('./hooks');
 
 const TX = `0x${'cd'.repeat(32)}` as Hash;
 
@@ -122,7 +122,10 @@ describe('hooks (mock runtime)', () => {
       tipper.release();
     });
     await waitFor(() => expect(result.current.tipCount).toBe(1));
-    expect(result.current.tipPoolWei).toBe(5_000_000_000_000_000n);
+    // W21b: the pool keeps the players' 80 %; raised counts the whole tip, host share included.
+    expect(result.current.tipPoolWei).toBe(4_000_000_000_000_000n);
+    expect(result.current.raisedWei).toBe(5_000_000_000_000_000n);
+    expect(result.current.tips.map((t) => t.amountWei)).toEqual([5_000_000_000_000_000n]);
     expect(result.current.lastTip?.amountWei).toBe(5_000_000_000_000_000n);
   });
 
@@ -377,25 +380,5 @@ describe('hooks (mock runtime)', () => {
     const { result } = renderHook(() => useDrip(null));
     expect(result.current).toEqual({ drip: null, loading: false, error: null, retryInSeconds: null, phase: null, roomFull: false });
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('useTip tips through the runtime and tracks pending', async () => {
-    const hit = runtime.acquireHitSender(4n);
-    await hit.sender.send(4n, 0, 0);
-    const { result } = renderHook(() => useTip(4n));
-    let p: ReturnType<typeof result.current.tip> | null = null;
-    act(() => {
-      p = result.current.tip();
-    });
-    await waitFor(() => expect(result.current.pending).toBe(true));
-    const receipt = await p;
-    expect(receipt).toMatchObject({ amountWei: 5_000_000_000_000_000n, blockNumber: expect.any(BigInt) });
-    await waitFor(() => expect(result.current.pending).toBe(false));
-    hit.release();
-  });
-
-  it('useTip rejects when there is no session', async () => {
-    const { result } = renderHook(() => useTip(null));
-    await expect(result.current.tip()).rejects.toMatchObject({ code: 'INVALID_ARGS' });
   });
 });

@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useState } from 'react';
+import { formatMon } from '@/lib/funding';
 import type { CrowdMode } from '@/lib/crowd/client';
 
 interface HostControlsProps {
@@ -22,6 +23,13 @@ interface HostControlsProps {
   onToggleDj: () => void;
   /** True while the audio overlay or the finalize dialog owns the page. */
   inert?: boolean;
+  /** W21b: the join code's show/hide (hidden by default); absent hides the button. */
+  joinQrVisible?: boolean;
+  onToggleJoinQr?: () => void;
+  /** W21b: the host share of tips not pulled yet (hostClaimableOf); absent hides the button. */
+  hostClaimableWei?: bigint | null;
+  onClaimHost?: () => void;
+  claimBusy?: boolean;
   /** W19: simulated players (the crowd simulator on the laptop); no buttons when absent. */
   crowd?: {
     running: boolean;
@@ -46,7 +54,27 @@ const button = 'inline-flex items-center justify-center rounded-full px-6 py-3 f
  * "New session" strands every phone on the old code, so it still asks first. After minting,
  * the mint button gives way to "Play the track" and "Open the gallery".
  */
-export function HostControls({ sessionId, finalized, mintedTokenId, busy, status, hasSecret, onSecretCommit, onNewSession, onEndAndMint, djRunning, djBusy, onToggleDj, inert = false, crowd }: HostControlsProps) {
+export function HostControls({
+  sessionId,
+  finalized,
+  mintedTokenId,
+  busy,
+  status,
+  hasSecret,
+  onSecretCommit,
+  onNewSession,
+  onEndAndMint,
+  djRunning,
+  djBusy,
+  onToggleDj,
+  inert = false,
+  joinQrVisible,
+  onToggleJoinQr,
+  hostClaimableWei,
+  onClaimHost,
+  claimBusy = false,
+  crowd,
+}: HostControlsProps) {
   const [draft, setDraft] = useState('');
   const [confirmNew, setConfirmNew] = useState(false);
 
@@ -123,6 +151,22 @@ export function HostControls({ sessionId, finalized, mintedTokenId, busy, status
                 style={quiet}
               />
             </label>
+          )}
+          {onToggleJoinQr && (
+            <button type="button" onClick={onToggleJoinQr} aria-pressed={joinQrVisible ?? false} className={button} style={quiet}>
+              {joinQrVisible ? 'Hide join code' : 'Show join code'}
+            </button>
+          )}
+          {onClaimHost && hostClaimableWei !== undefined && (
+            <button
+              type="button"
+              onClick={onClaimHost}
+              disabled={claimBusy || hostClaimableWei === null || hostClaimableWei <= 0n}
+              className={button}
+              style={{ ...quiet, border: '1px solid var(--track-hat)' }}
+            >
+              {`Claim host tips (${hostClaimableWei === null ? '…' : formatMon(hostClaimableWei)} MON)`}
+            </button>
           )}
           <button type="button" onClick={() => setConfirmNew(true)} disabled={busy} className={button} style={quiet}>
             New session

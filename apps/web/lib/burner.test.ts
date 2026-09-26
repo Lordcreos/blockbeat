@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { isAddress } from 'viem';
-import { BURNER_STORAGE_KEY, loadOrCreateBurner, type StorageLike } from './burner';
+import { BURNER_STORAGE_KEY, TIPPER_BURNER_STORAGE_KEY, loadOrCreateBurner, type StorageLike } from './burner';
 
 function memoryStorage(initial: Record<string, string> = {}): StorageLike & { data: Map<string, string> } {
   const data = new Map(Object.entries(initial));
@@ -29,6 +29,16 @@ describe('loadOrCreateBurner', () => {
     expect(BURNER_STORAGE_KEY).toMatch(/^blockbeat:/);
     expect(b.account.address).toBe(b.address);
     expect(b.account.nonceManager).toBeDefined();
+  });
+
+  it('W21b: the tip page keeps its own key under a separate storage key, never the player burner', () => {
+    const storage = memoryStorage({ [BURNER_STORAGE_KEY]: PK });
+    const tipper = loadOrCreateBurner({ storage, storageKey: TIPPER_BURNER_STORAGE_KEY });
+    expect(tipper.restored).toBe(false);
+    expect(TIPPER_BURNER_STORAGE_KEY).not.toBe(BURNER_STORAGE_KEY);
+    expect(storage.data.get(TIPPER_BURNER_STORAGE_KEY)).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(storage.data.get(BURNER_STORAGE_KEY)).toBe(PK);
+    expect(loadOrCreateBurner({ storage, storageKey: TIPPER_BURNER_STORAGE_KEY }).address).toBe(tipper.address);
   });
 
   it('restores an existing key', () => {
