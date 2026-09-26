@@ -1,0 +1,372 @@
+@import "tailwindcss";
+@import "../styles/tokens.css";
+
+@theme inline {
+  --color-stage: var(--stage);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-on-track: var(--ink-on-track);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --color-track-kick: var(--track-kick);
+  --color-track-snare: var(--track-snare);
+  --color-track-hat: var(--track-hat);
+  --color-track-clap: var(--track-clap);
+  --color-track-bass: var(--track-bass);
+  --color-track-lead: var(--track-lead);
+  --color-track-pad: var(--track-pad);
+  --color-track-fx: var(--track-fx);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html {
+  color-scheme: dark;
+  background: var(--stage);
+}
+
+body {
+  background: var(--stage);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Numbers that must not shift: tabular figures everywhere they appear. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* ------------------------------------------------------------------ ambient stage light
+ * Two soft radial glows drifting on their own compositor layer (transform only, no blur
+ * filter: the gradient falloff is the softness) plus the SMIL guide asset. Everything
+ * here stays under 7% so the grid always wins.
+ */
+.stage-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background: var(--stage) url("/stage-bg.svg") center / cover no-repeat;
+}
+.stage-ambient::before,
+.stage-ambient::after {
+  content: "";
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 50%;
+  will-change: transform;
+}
+.stage-ambient::before {
+  left: -20vmax;
+  top: -30vmax;
+  background: radial-gradient(closest-side, var(--glow-a), transparent 70%);
+  animation: ambient-drift-a 28s ease-in-out infinite alternate;
+}
+.stage-ambient::after {
+  right: -25vmax;
+  bottom: -35vmax;
+  background: radial-gradient(closest-side, var(--glow-b), transparent 70%);
+  animation: ambient-drift-b 34s ease-in-out infinite alternate;
+}
+@keyframes ambient-drift-a {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(18vmax, 12vmax, 0); }
+}
+@keyframes ambient-drift-b {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-16vmax, -10vmax, 0); }
+}
+
+/* ------------------------------------------------------------------ playhead column
+ * One element per step behind the cells. The active column is full light, the two
+ * behind it are the trail; opacity is the only animated property (compositor only).
+ */
+.ph-col {
+  opacity: 0;
+  border-radius: 10px;
+  background: linear-gradient(to bottom, var(--playhead-core), var(--playhead-glow) 55%, var(--playhead-core));
+  box-shadow: 0 0 34px 6px var(--playhead-glow);
+  transition: opacity var(--trail-ms) var(--ease-out);
+}
+.ph-col[data-active="true"] {
+  opacity: 1;
+  transition: none;
+}
+.ph-col[data-trail="1"] { opacity: var(--trail-1); }
+.ph-col[data-trail="2"] { opacity: var(--trail-2); }
+
+/* Cell flash on a fresh hit: a punch of light and an expanding white ring. */
+@keyframes cell-flash {
+  0% { transform: scale(1.34); filter: brightness(2.4) saturate(1.2); }
+  55% { transform: scale(1.06); filter: brightness(1.3); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+@keyframes ring-out {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(2); }
+}
+.cell-flash {
+  animation: cell-flash var(--flash-ms) var(--ease-out);
+  z-index: 2;
+}
+.cell-flash::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 3px solid var(--playhead-edge);
+  pointer-events: none;
+  animation: ring-out 560ms var(--ease-out) forwards;
+}
+
+/* Agent hits: hollow cell whose outline breathes (a pseudo-element animating only
+ * opacity and transform, so a grid full of agent notes stays on the compositor). */
+@keyframes agent-pulse {
+  0% { opacity: 0.35; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1.1); }
+}
+.cell-agent::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 3px var(--agent-glow, transparent), 0 0 18px var(--agent-glow, transparent);
+  pointer-events: none;
+  animation: agent-pulse 900ms ease-in-out infinite alternate;
+}
+
+/* Playhead ruler marker breath, subtle. */
+@keyframes playhead-pulse {
+  0% { opacity: 1; }
+  100% { opacity: 0.55; }
+}
+.playhead-edge {
+  animation: playhead-pulse 300ms linear infinite alternate;
+}
+
+/* Empty-state hint over the grid before the first note. */
+@keyframes hint-breathe {
+  0% { opacity: 0.72; }
+  100% { opacity: 1; }
+}
+.grid-hint {
+  animation: hint-breathe 1.6s ease-in-out infinite alternate;
+}
+
+/* ------------------------------------------------------------------ phone pads */
+.pad {
+  transition: transform 90ms var(--ease-out), filter 90ms var(--ease-out), box-shadow 90ms var(--ease-out);
+}
+.pad:active:not(:disabled) {
+  transform: scale(0.94);
+  filter: brightness(1.5);
+}
+/* Pad flash on tap (optimistic): white punch that settles back to the track colour. */
+@keyframes pad-flash {
+  0% { box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.85), 0 0 48px 6px var(--pad-colour, transparent); transform: scale(0.94); }
+  40% { box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.25), 0 0 36px 4px var(--pad-colour, transparent); transform: scale(1.02); }
+  100% { box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.18), 0 0 0 0 transparent; transform: scale(1); }
+}
+.pad-flash {
+  animation: pad-flash 260ms var(--ease-out);
+}
+/* Warming-up pads: a slow sheen (a translated layer, transform only) while the wallet is funded. */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.pad-warming::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.07) 50%, transparent 65%);
+  animation: shimmer 1.8s linear infinite;
+  pointer-events: none;
+}
+/* Landing line pop: the confirmation drops in and settles. */
+@keyframes line-pop {
+  0% { opacity: 0; transform: translateY(8px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.line-pop {
+  display: inline-block;
+  animation: line-pop 320ms var(--ease-out);
+}
+/* W12: the stage Tips stat glows when a tip lands. */
+@keyframes tip-flash {
+  0% { background: color-mix(in srgb, var(--track-snare) 38%, transparent); box-shadow: 0 0 28px var(--track-snare); }
+  100% { background: transparent; box-shadow: 0 0 0 transparent; }
+}
+.tip-flash {
+  animation: tip-flash 1.6s var(--ease-out);
+}
+/* Step strip: the cell where the last note landed lights up. */
+@keyframes strip-land {
+  0% { transform: scaleY(2.2); filter: brightness(2); }
+  100% { transform: scaleY(1); filter: brightness(1); }
+}
+.strip-landed {
+  animation: strip-land 420ms var(--ease-out);
+}
+
+/* ------------------------------------------------------------------ landing hero
+ * A CSS-only sequencer: the column sweeps 16 steps at 300 ms and lit cells blink as it
+ * passes. Timings mirror the real stage (16 × 300 ms = 4.8 s per loop).
+ */
+@keyframes hero-sweep {
+  from { transform: translateX(0); }
+  to { transform: translateX(1600%); }
+}
+.hero-playhead {
+  animation: hero-sweep 4.8s steps(16, end) infinite;
+}
+@keyframes hero-blink {
+  0%, 5% { transform: scale(1.12); }
+  14%, 100% { transform: scale(1); }
+}
+@keyframes hero-flash {
+  0%, 4% { opacity: 0.75; }
+  14%, 100% { opacity: 0; }
+}
+.hero-cell[data-on] {
+  position: relative;
+  animation: hero-blink 4.8s linear infinite;
+  animation-delay: calc(var(--step) * 300ms);
+}
+/* The brightness punch is a white layer fading out: opacity only, no repaint of the cell. */
+.hero-cell[data-on]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #fff;
+  opacity: 0;
+  animation: hero-flash 4.8s linear infinite;
+  animation-delay: calc(var(--step) * 300ms);
+}
+
+/* ------------------------------------------------------------------ record sleeve */
+.sleeve {
+  background:
+    radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
+    linear-gradient(160deg, #15151c, #0a0a0f 65%);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.9), 0 0 0 1px var(--line-strong);
+}
+.vinyl {
+  background:
+    radial-gradient(circle at 50% 50%, #1b1b22 0 12%, #0a0a0d 12.5% 14%, transparent 14.5%),
+    repeating-radial-gradient(circle at 50% 50%, #0d0d11 0 2px, #141419 2px 4px);
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell-flash, .cell-flash::after, .cell-agent::before, .pad-flash, .playhead-edge, .grid-hint,
+  .pad-warming::after, .line-pop, .strip-landed, .tip-flash, .hero-playhead, .hero-cell[data-on], .hero-cell[data-on]::after,
+  .stage-ambient::before, .stage-ambient::after {
+    animation: none !important;
+  }
+  .ph-col, .pad { transition: none; }
+  * { transition-duration: 0.01ms !important; }
+}
+
+/* ------------------------------------------------------------------ stage layout
+ * Grid + right rail on the big screen, stacked on anything narrow.
+ */
+.stage-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 500px;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+  --grid-label-col: 112px;
+  --grid-label-size: 26px;
+  --grid-ruler-size: var(--text-md);
+}
+.stage-rail {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (max-width: 1100px) {
+  .stage-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+    --grid-label-col: 52px;
+    --grid-label-size: var(--text-xs);
+    --grid-ruler-size: 11px;
+  }
+  .stage-rail { overflow: visible; }
+  .stage-grid-wrap {
+    height: min(56vw, 60dvh);
+    min-height: 280px;
+  }
+  .stage-title { font-size: 36px !important; }
+  .stage-hint { font-size: 20px !important; }
+}
+
+/* ------------------------------------------------------------------ W15: track playback
+ * The cover playhead is the stage's column of light at record-sleeve scale. It moves on
+ * `left` over 90 ms (a quarter of a step) so it glides rather than blinks; under reduced
+ * motion it jumps once per step with no glow trail. The disc behind the sleeve turns at
+ * 33⅓ rpm while the track plays, and not at all under reduced motion.
+ */
+.cover-playhead {
+  border-radius: 3px;
+  background: linear-gradient(to bottom, var(--playhead-core), var(--playhead-glow) 55%, var(--playhead-core));
+  box-shadow: 0 0 14px 3px var(--playhead-glow), inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  transition: left 90ms linear;
+}
+.cover-playhead[data-reduced="true"] {
+  transition: none;
+  box-shadow: inset 0 0 0 2px var(--playhead-edge);
+  background: rgba(255, 255, 255, 0.12);
+}
+@keyframes vinyl-turn {
+  to { transform: rotate(360deg); }
+}
+.vinyl-spin {
+  animation: vinyl-turn 1.8s linear infinite;
+}
+.transport-button:focus-visible,
+.host-bar button:focus-visible,
+.host-bar a:focus-visible,
+.host-bar input:focus-visible {
+  outline: 3px solid var(--playhead-edge);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vinyl-spin { animation: none !important; }
+  .cover-playhead { transition: none; }
+}
+
+/* W15: the host bar takes its own full-width row above the stage, only when shown. */
+.stage-layout[data-host-bar="true"] {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.stage-layout[data-host-bar="true"] > .host-bar {
+  grid-column: 1 / -1;
+}
+@media (max-width: 1100px) {
+  .stage-layout[data-host-bar="true"] {
+    grid-template-rows: auto auto auto;
+  }
+}

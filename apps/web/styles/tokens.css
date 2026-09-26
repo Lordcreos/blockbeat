@@ -1,0 +1,71 @@
+/*
+ * Blockbeat design tokens.
+ * One accent per track, tuned for a near-black stage read from ten metres.
+ * Every track colour clears WCAG AA (>= 4.5:1) as text on --stage and takes
+ * --ink-on-track as legible foreground when used as a fill.
+ */
+:root {
+  /* ---- track accents (TRACK_META in @blockbeat/shared references these names) */
+  --track-kick: #ff2e63;   /* hot pink-red, contrast on stage 5.6:1 */
+  --track-snare: #ff8a00;  /* orange, 8.2:1 */
+  --track-hat: #ffe600;    /* yellow, 16.6:1 */
+  --track-clap: #3dff8f;   /* green, 15.0:1 */
+  --track-bass: #00e5ff;   /* cyan, 13.8:1 */
+  --track-lead: #4d7cff;   /* blue, 5.4:1 */
+  --track-pad: #b36bff;    /* violet, 6.3:1 */
+  --track-fx: #ff5cf1;     /* magenta, 8.3:1 */
+
+  /* ---- agent (resident DJ) hits: hollow cell, outline in the track colour, white core */
+  --agent-core: #ffffff;
+  --agent-ring: rgba(255, 255, 255, 0.85);
+
+  /* ---- surfaces */
+  --stage: #050507;        /* near-black stage background */
+  --surface-1: #0f0f14;    /* rail, panels */
+  --surface-2: #17171f;    /* raised */
+  --surface-3: #22222c;    /* controls */
+  --line: rgba(255, 255, 255, 0.10);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  /* Off cells are translucent so the playhead light shows through them. */
+  --cell-off: rgba(255, 255, 255, 0.045);
+  --cell-off-beat: rgba(255, 255, 255, 0.075);
+
+  /* ---- ink */
+  --ink: #f2f2f5;          /* 18.5:1 */
+  --ink-muted: #a3a3b3;    /* 8.2:1 */
+  --ink-faint: #6d6d7c;    /* 4.6:1, decorative labels only */
+  --ink-on-track: #050507; /* dark text on any track fill */
+  --danger: #ff6b6b;
+  --ok: #3dff8f;
+
+  /* ---- playhead: the hero. A full-height column of light with a two-step trail. */
+  --playhead: rgba(255, 255, 255, 0.22);
+  --playhead-edge: #ffffff;
+  --playhead-core: rgba(255, 255, 255, 0.30);
+  --playhead-glow: rgba(255, 255, 255, 0.14);
+  --trail-1: 0.42;
+  --trail-2: 0.16;
+
+  /* ---- ambient stage light (never above 7% so the grid always wins) */
+  --glow-a: rgba(0, 229, 255, 0.07);
+  --glow-b: rgba(179, 107, 255, 0.07);
+
+  /* ---- type scale (px). HUD numbers >= 24 px, stage title >= 48 px. */
+  --text-xs: 13px;
+  --text-sm: 15px;
+  --text-md: 18px;
+  --text-lg: 24px;
+  --text-hud: 32px;
+  --text-hud-lg: 40px;
+  --text-hud-xl: 56px;
+  --text-title: 64px;
+  --text-pad: 48px;
+
+  /* ---- radii and motion */
+  --radius-cell: 6px;
+  --radius-pad: 22px;
+  --radius-control: 10px;
+  --flash-ms: 380ms;
+  --trail-ms: 260ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}

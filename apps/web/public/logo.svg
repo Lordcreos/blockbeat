@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Blockbeat</title>
+  <desc id="desc">A four by four sequencer grid with a bright playhead and multicoloured active steps.</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111118"/>
+      <stop offset="1" stop-color="#050507"/>
+    </linearGradient>
+    <linearGradient id="playhead" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f2f2f5" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#f2f2f5" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#f2f2f5" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="88" fill="url(#surface)"/>
+  <rect x="26" y="26" width="460" height="460" rx="68" fill="none" stroke="#f2f2f5" stroke-opacity="0.07" stroke-width="2"/>
+
+  <rect x="252" y="54" width="100" height="404" rx="34" fill="url(#playhead)"/>
+  <rect x="298" y="58" width="8" height="396" rx="4" fill="#f2f2f5" opacity="0.78" filter="url(#glow)"/>
+
+  <g fill="#f2f2f5" fill-opacity="0.08" stroke="#f2f2f5" stroke-opacity="0.08" stroke-width="2">
+    <rect x="70" y="70" width="76" height="76" rx="20"/>
+    <rect x="168" y="70" width="76" height="76" rx="20" fill="#ff2e63" fill-opacity="1" stroke="#ff2e63" filter="url(#glow)"/>
+    <rect x="266" y="70" width="76" height="76" rx="20" fill="#f2f2f5" fill-opacity="0.32" stroke="#f2f2f5" stroke-opacity="0.72"/>
+    <rect x="364" y="70" width="76" height="76" rx="20"/>
+
+    <rect x="70" y="168" width="76" height="76" rx="20" fill="#ff8a00" fill-opacity="1" stroke="#ff8a00" filter="url(#glow)"/>
+    <rect x="168" y="168" width="76" height="76" rx="20"/>
+    <rect x="266" y="168" width="76" height="76" rx="20" fill="#ffe600" fill-opacity="0.92" stroke="#ffe600" stroke-opacity="1" filter="url(#glow)"/>
+    <rect x="364" y="168" width="76" height="76" rx="20"/>
+
+    <rect x="70" y="266" width="76" height="76" rx="20"/>
+    <rect x="168" y="266" width="76" height="76" rx="20" fill="#00e5ff" fill-opacity="1" stroke="#00e5ff" filter="url(#glow)"/>
+    <rect x="266" y="266" width="76" height="76" rx="20" fill="#f2f2f5" fill-opacity="0.32" stroke="#f2f2f5" stroke-opacity="0.72"/>
+    <rect x="364" y="266" width="76" height="76" rx="20" fill="#4d7cff" fill-opacity="1" stroke="#4d7cff" filter="url(#glow)"/>
+
+    <rect x="70" y="364" width="76" height="76" rx="20" fill="#3dff8f" fill-opacity="1" stroke="#3dff8f" filter="url(#glow)"/>
+    <rect x="168" y="364" width="76" height="76" rx="20"/>
+    <rect x="266" y="364" width="76" height="76" rx="20" fill="#b36bff" fill-opacity="0.92" stroke="#b36bff" stroke-opacity="1" filter="url(#glow)"/>
+    <rect x="364" y="364" width="76" height="76" rx="20" fill="#ff5cf1" fill-opacity="1" stroke="#ff5cf1" filter="url(#glow)"/>
+  </g>
+</svg>

@@ -1,0 +1,22 @@
+node_modules/
+.next/
+out/
+dist/
+.env
+.env.local
+.env*.local
+*.log
+.DS_Store
+contracts/out/
+contracts/cache/
+contracts/broadcast/**/dry-run/
+coverage/
+apps/web/test-results/
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
+playwright-report/
+
+# Local anvil deploy artefacts (integration only)
+contracts/broadcast/**/31337/
+contracts/broadcast/**/10143/
+scripts/.crowd/

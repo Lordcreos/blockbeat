@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <title>Blockbeat ambient stage background</title>
+  <desc>A near-black backdrop with dim drifting cyan and violet glows and a slowly pulsing sixteen-column timing guide.</desc>
+  <defs>
+    <radialGradient id="cyanGlow">
+      <stop offset="0" stop-color="#5f8c91" stop-opacity=".04"/>
+      <stop offset=".42" stop-color="#416b70" stop-opacity=".022"/>
+      <stop offset="1" stop-color="#172225" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="violetGlow">
+      <stop offset="0" stop-color="#79658b" stop-opacity=".04"/>
+      <stop offset=".45" stop-color="#574c68" stop-opacity=".021"/>
+      <stop offset="1" stop-color="#201d27" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="#050507"/>
+
+  <g aria-hidden="true">
+    <ellipse cx="250" cy="250" rx="870" ry="690" fill="url(#cyanGlow)">
+      <animateTransform attributeName="transform" type="translate" dur="38s" repeatCount="indefinite"
+        values="0 0;170 55;40 150;-90 65;0 0"/>
+    </ellipse>
+    <ellipse cx="1580" cy="810" rx="900" ry="720" fill="url(#violetGlow)">
+      <animateTransform attributeName="transform" type="translate" dur="46s" repeatCount="indefinite"
+        values="0 0;-150 -75;-35 -155;105 -45;0 0"/>
+    </ellipse>
+  </g>
+
+  <g fill="none" stroke="#34343d" stroke-width="1" opacity=".014" aria-hidden="true">
+    <animate attributeName="opacity" dur="24s" repeatCount="indefinite" values=".014;.02;.014"/>
+    <path d="M0 0V1080 M120 0V1080 M240 0V1080 M360 0V1080 M480 0V1080 M600 0V1080 M720 0V1080 M840 0V1080 M960 0V1080 M1080 0V1080 M1200 0V1080 M1320 0V1080 M1440 0V1080 M1560 0V1080 M1680 0V1080 M1800 0V1080 M1920 0V1080"/>
+  </g>
+</svg>

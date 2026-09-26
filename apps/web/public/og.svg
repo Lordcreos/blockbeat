@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Blockbeat</title>
+  <desc id="desc">The Blockbeat title above a sixteen-step, eight-track sequencer grid with an illuminated playhead.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111118"/>
+      <stop offset="0.55" stop-color="#08080c"/>
+      <stop offset="1" stop-color="#050507"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#4d7cff" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#4d7cff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cell-glow" x="-80%" y="-120%" width="260%" height="340%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <style>
+      .cell { fill: #f2f2f5; fill-opacity: 0.075; stroke: #f2f2f5; stroke-opacity: 0.08; stroke-width: 1; }
+      .play { fill: #f2f2f5; fill-opacity: 0.26; stroke: #f2f2f5; stroke-opacity: 0.58; stroke-width: 1.5; }
+      .lit { fill-opacity: 1; stroke-opacity: 0.95; filter: url(#cell-glow); }
+      .kick .lit { fill: #ff2e63; stroke: #ff2e63; }
+      .snare .lit { fill: #ff8a00; stroke: #ff8a00; }
+      .hat .lit { fill: #ffe600; stroke: #ffe600; }
+      .clap .lit { fill: #3dff8f; stroke: #3dff8f; }
+      .bass .lit { fill: #00e5ff; stroke: #00e5ff; }
+      .lead .lit { fill: #4d7cff; stroke: #4d7cff; }
+      .pad .lit { fill: #b36bff; stroke: #b36bff; }
+      .fx .lit { fill: #ff5cf1; stroke: #ff5cf1; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#background)"/>
+  <ellipse cx="588" cy="420" rx="510" ry="310" fill="url(#halo)"/>
+  <path d="M70 225H1130" stroke="#f2f2f5" stroke-opacity="0.09"/>
+
+  <text x="70" y="126" fill="#f2f2f5" font-family="Geist, Inter, system-ui, sans-serif" font-size="76" font-weight="800" letter-spacing="-3">Blockbeat</text>
+  <text x="70" y="182" fill="#f2f2f5" fill-opacity="0.76" font-family="Geist, Inter, system-ui, sans-serif" font-size="24" font-weight="500">The room composes. Monad keeps time. Every note is a transaction.</text>
+  <text x="1130" y="102" fill="#f2f2f5" fill-opacity="0.48" font-family="Geist, Inter, system-ui, sans-serif" font-size="16" font-weight="700" text-anchor="end" letter-spacing="2">1 BLOCK = 1 STEP</text>
+  <text x="1130" y="130" fill="#00e5ff" font-family="Geist, Inter, system-ui, sans-serif" font-size="16" font-weight="700" text-anchor="end" letter-spacing="2">300 MS</text>
+
+  <rect x="550" y="243" width="70" height="332" rx="18" fill="#f2f2f5" fill-opacity="0.055" stroke="#f2f2f5" stroke-opacity="0.2"/>
+  <rect x="582" y="250" width="6" height="318" rx="3" fill="#f2f2f5" opacity="0.52" filter="url(#cell-glow)"/>
+
+  <g aria-label="16 step by 8 track grid">
+    <!-- Kick -->
+    <g class="kick" fill="#ff2e63" stroke="#ff2e63">
+      <rect class="cell lit" x="70" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="132" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="194" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="256" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="318" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="380" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="442" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="504" y="256" width="50" height="26" rx="8"/>
+      <rect class="play lit" x="566" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="628" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="690" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="752" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="814" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="876" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="938" y="256" width="50" height="26" rx="8"/>
+      <rect class="cell" x="1000" y="256" width="50" height="26" rx="8"/>
+    </g>
+    <!-- Snare -->
+    <g class="snare" fill="#ff8a00" stroke="#ff8a00">
+      <rect class="cell" x="70" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="132" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="194" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="256" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="318" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="380" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="442" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="504" y="297" width="50" height="26" rx="8"/>
+      <rect class="play" x="566" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="628" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="690" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="752" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="814" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="876" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="938" y="297" width="50" height="26" rx="8"/>
+      <rect class="cell" x="1000" y="297" width="50" height="26" rx="8"/>
+    </g>
+    <!-- Hat -->
+    <g class="hat" fill="#ffe600" stroke="#ffe600">
+      <rect class="cell" x="70" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="132" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell" x="194" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="256" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell" x="318" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="380" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell" x="442" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="504" y="338" width="50" height="26" rx="8"/>
+      <rect class="play" x="566" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="628" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell" x="690" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="752" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell" x="814" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="876" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell" x="938" y="338" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="1000" y="338" width="50" height="26" rx="8"/>
+    </g>
+    <!-- Clap -->
+    <g class="clap" fill="#3dff8f" stroke="#3dff8f">
+      <rect class="cell" x="70" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="132" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="194" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="256" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="318" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="380" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="442" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="504" y="379" width="50" height="26" rx="8"/>
+      <rect class="play" x="566" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="628" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="690" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="752" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="814" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="876" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="938" y="379" width="50" height="26" rx="8"/>
+      <rect class="cell" x="1000" y="379" width="50" height="26" rx="8"/>
+    </g>
+    <!-- Bass -->
+    <g class="bass" fill="#00e5ff" stroke="#00e5ff">
+      <rect class="cell lit" x="70" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="132" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="194" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="256" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="318" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="380" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="442" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="504" y="420" width="50" height="26" rx="8"/>
+      <rect class="play lit" x="566" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="628" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="690" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="752" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="814" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="876" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="938" y="420" width="50" height="26" rx="8"/>
+      <rect class="cell" x="1000" y="420" width="50" height="26" rx="8"/>
+    </g>
+    <!-- Lead -->
+    <g class="lead" fill="#4d7cff" stroke="#4d7cff">
+      <rect class="cell" x="70" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="132" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="194" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="256" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="318" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="380" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="442" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="504" y="461" width="50" height="26" rx="8"/>
+      <rect class="play" x="566" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="628" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="690" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="752" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="814" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="876" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="938" y="461" width="50" height="26" rx="8"/>
+      <rect class="cell" x="1000" y="461" width="50" height="26" rx="8"/>
+    </g>
+    <!-- Pad -->
+    <g class="pad" fill="#b36bff" stroke="#b36bff">
+      <rect class="cell" x="70" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="132" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="194" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="256" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="318" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="380" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="442" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="504" y="502" width="50" height="26" rx="8"/>
+      <rect class="play" x="566" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="628" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="690" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="752" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="814" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="876" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell" x="938" y="502" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="1000" y="502" width="50" height="26" rx="8"/>
+    </g>
+    <!-- FX -->
+    <g class="fx" fill="#ff5cf1" stroke="#ff5cf1">
+      <rect class="cell" x="70" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="132" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="194" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="256" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="318" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="380" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="442" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="504" y="543" width="50" height="26" rx="8"/>
+      <rect class="play" x="566" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="628" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="690" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="752" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="814" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell lit" x="876" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="938" y="543" width="50" height="26" rx="8"/>
+      <rect class="cell" x="1000" y="543" width="50" height="26" rx="8"/>
+    </g>
+  </g>
+
+  <g font-family="Geist, Inter, system-ui, sans-serif" font-size="12" font-weight="700" fill="#f2f2f5" fill-opacity="0.34" text-anchor="middle">
+    <text x="95" y="604">01</text><text x="157" y="604">02</text><text x="219" y="604">03</text><text x="281" y="604">04</text>
+    <text x="343" y="604">05</text><text x="405" y="604">06</text><text x="467" y="604">07</text><text x="529" y="604">08</text>
+    <text x="591" y="604" fill-opacity="1">09</text><text x="653" y="604">10</text><text x="715" y="604">11</text><text x="777" y="604">12</text>
+    <text x="839" y="604">13</text><text x="901" y="604">14</text><text x="963" y="604">15</text><text x="1025" y="604">16</text>
+  </g>
+</svg>

@@ -1,0 +1,30 @@
+{
+  "name": "agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Blockbeat resident DJ agent: listens to the pattern, asks Claude for fills, sends timed hits.",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "seed": "tsx scripts/seed-session.ts",
+    "tick": "tsx scripts/anvil-ticker.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@blockbeat/shared": "workspace:*",
+    "@google/genai": "^2.24.0",
+    "dotenv": "^16.4.7",
+    "viem": "^2.40.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@vitest/coverage-v8": "3",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^3.0.0"
+  }
+}
